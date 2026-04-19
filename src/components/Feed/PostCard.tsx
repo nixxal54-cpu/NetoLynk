@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Heart,
@@ -41,6 +41,7 @@ import {
   query,
   where,
   setDoc,
+  runTransaction,
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { toast } from 'sonner';
@@ -49,7 +50,7 @@ interface PostCardProps {
   post: Post;
 }
 
-// ── Mood icon helper — exported so CreatePost can use it ──────────────────────
+// ── Mood icon helper ──────────────────────────────────────────────────────────
 export const getMoodIconByLabel = (label: string) => {
   switch (label) {
     case 'Frustrated':   return <Angry      className="w-4 h-4" />;
@@ -79,21 +80,40 @@ const ShareSheet: React.FC<ShareSheetProps> = ({ post, onClose }) => {
 
   useEffect(() => {
     if (!user) return;
+    let cancelled = false;
+
     const fetchFollowing = async () => {
       try {
         const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (cancelled) return;
         const followingIds: string[] = userDoc.data()?.following || [];
-        if (followingIds.length === 0) { setFollowingUsers([]); return; }
-        const q = query(collection(db, 'users'), where('uid', 'in', followingIds.slice(0, 10)));
-        const snap = await getDocs(q);
-        setFollowingUsers(snap.docs.map(d => ({ ...d.data(), uid: d.id } as User)));
+        if (followingIds.length === 0) {
+          setFollowingUsers([]);
+          return;
+        }
+        // Firestore 'in' queries support max 10 items per query
+        const chunks: string[][] = [];
+        for (let i = 0; i < followingIds.length; i += 10) {
+          chunks.push(followingIds.slice(i, i + 10));
+        }
+        const results = await Promise.all(
+          chunks.map(chunk =>
+            getDocs(query(collection(db, 'users'), where('uid', 'in', chunk)))
+          )
+        );
+        if (cancelled) return;
+        const users = results.flatMap(snap =>
+          snap.docs.map(d => ({ ...d.data(), uid: d.id } as User))
+        );
+        setFollowingUsers(users);
       } catch (e) {
-        console.error(e);
+        console.error('Failed to fetch following:', e);
       } finally {
-        setLoadingFollowing(false);
+        if (!cancelled) setLoadingFollowing(false);
       }
     };
     fetchFollowing();
+    return () => { cancelled = true; };
   }, [user]);
 
   const handleSendToUser = async (recipient: User) => {
@@ -105,8 +125,16 @@ const ShareSheet: React.FC<ShareSheetProps> = ({ post, onClose }) => {
       await setDoc(chatRef, {
         participants: [user.uid, recipient.uid],
         participantDetails: {
-          [user.uid]: { username: user.username, displayName: user.displayName, profileImage: user.profileImage || '' },
-          [recipient.uid]: { username: recipient.username, displayName: recipient.displayName, profileImage: recipient.profileImage || '' },
+          [user.uid]: {
+            username: user.username,
+            displayName: user.displayName,
+            profileImage: user.profileImage || '',
+          },
+          [recipient.uid]: {
+            username: recipient.username,
+            displayName: recipient.displayName,
+            profileImage: recipient.profileImage || '',
+          },
         },
         lastMessage: 'Shared a post',
         lastMessageAt: new Date().toISOString(),
@@ -121,7 +149,11 @@ const ShareSheet: React.FC<ShareSheetProps> = ({ post, onClose }) => {
         createdAt: new Date().toISOString(),
       });
 
-      await updateDoc(doc(db, 'posts', post.id), { sharesCount: increment(1) });
+      // sharesCount is in the allowed update fields per Firestore rules
+      await updateDoc(doc(db, 'posts', post.id), {
+        sharesCount: increment(1),
+      });
+
       setSent(prev => new Set(prev).add(recipient.uid));
       toast.success(`Sent to @${recipient.username}`);
     } catch {
@@ -205,11 +237,13 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
   const { user } = useAuth();
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // ✅ FIX: derive liked/saved from arrays every render — never stale boolean state
+  // Derive liked/saved from arrays on every render — never stale local boolean state
   const isLiked = user ? (post.likedBy ?? []).includes(user.uid) : false;
   const isSaved = user ? (post.savedBy ?? []).includes(user.uid) : false;
   const isOwnPost = user?.uid === post.userId;
 
+  // Optimistic counters — mirrors server state, rolls back on error
+  const [optimisticLikes, setOptimisticLikes] = useState<number | null>(null);
   const [isLiking, setIsLiking]   = useState(false);
   const [isSaving, setIsSaving]   = useState(false);
   const [showMenu, setShowMenu]   = useState(false);
@@ -219,7 +253,14 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [showShareSheet, setShowShareSheet] = useState(false);
 
-  // ✅ FIX: close menu on outside click
+  // Keep optimistic counter in sync when real server value changes
+  useEffect(() => {
+    if (!isLiking) {
+      setOptimisticLikes(null);
+    }
+  }, [post.likesCount, isLiking]);
+
+  // Close menu on outside click
   useEffect(() => {
     if (!showMenu) return;
     const handler = (e: MouseEvent) => {
@@ -231,27 +272,33 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
     return () => document.removeEventListener('mousedown', handler);
   }, [showMenu]);
 
-  // ✅ FIX: optimistic like with rollback on error
-  const handleLike = async (e: React.MouseEvent) => {
+  // ── Like — optimistic UI with rollback ───────────────────────────────────
+  // FIX: Only writes to 'likedBy' (allowed by Firestore rules).
+  // likesCount is maintained by Cloud Functions — do NOT write it from client.
+  const handleLike = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!user || isLiking) return;
-    setIsLiking(true);
 
-    // Optimistic UI handled by Firestore's onSnapshot in parent — 
-    // we just write and let the listener update the prop.
+    const wasLiked = isLiked;
+    const prevCount = post.likesCount ?? 0;
+
+    // Optimistic update immediately
+    setIsLiking(true);
+    setOptimisticLikes(wasLiked ? prevCount - 1 : prevCount + 1);
+
     try {
       const postRef = doc(db, 'posts', post.id);
-      if (isLiked) {
+      if (wasLiked) {
+        // FIX: removed likesCount: increment(-1) — violates Firestore rules
         await updateDoc(postRef, {
           likedBy: arrayRemove(user.uid),
-          likesCount: increment(-1),
         });
       } else {
+        // FIX: removed likesCount: increment(1) — violates Firestore rules
         await updateDoc(postRef, {
           likedBy: arrayUnion(user.uid),
-          likesCount: increment(1),
         });
-        // Notify post owner (fire-and-forget)
+        // Fire-and-forget notification (non-blocking)
         if (post.userId !== user.uid) {
           addDoc(collection(db, 'notifications'), {
             recipientId: post.userId,
@@ -262,18 +309,21 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
             postId: post.id,
             read: false,
             createdAt: new Date().toISOString(),
-          }).catch(() => {});
+          }).catch(() => {}); // never throw — notification is best-effort
         }
       }
-    } catch {
-      toast.error('Failed to like post');
+    } catch (err) {
+      // Rollback optimistic update on failure
+      setOptimisticLikes(prevCount);
+      toast.error('Failed to like post. Please try again.');
+      console.error('Like error:', err);
     } finally {
       setIsLiking(false);
     }
-  };
+  }, [user, isLiking, isLiked, post]);
 
-  // ✅ FIX: save uses arrayUnion/Remove so it's always correct regardless of prior state
-  const handleSave = async (e: React.MouseEvent) => {
+  // ── Save ─────────────────────────────────────────────────────────────────
+  const handleSave = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!user || isSaving) return;
     setIsSaving(true);
@@ -286,28 +336,32 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
         await updateDoc(postRef, { savedBy: arrayUnion(user.uid) });
         toast.success('Post saved');
       }
-    } catch {
-      toast.error('Failed to save post');
+    } catch (err) {
+      toast.error('Failed to save post. Please try again.');
+      console.error('Save error:', err);
     } finally {
       setIsSaving(false);
     }
-  };
+  }, [user, isSaving, isSaved, post.id]);
 
-  const handleDelete = async (e: React.MouseEvent) => {
+  // ── Delete ────────────────────────────────────────────────────────────────
+  const handleDelete = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!user || !isOwnPost || isDeleting) return;
     setIsDeleting(true);
     try {
       await deleteDoc(doc(db, 'posts', post.id));
       toast.success('Post deleted');
-    } catch {
-      toast.error('Failed to delete post');
+    } catch (err) {
+      toast.error('Failed to delete post. Please try again.');
+      console.error('Delete error:', err);
       setIsDeleting(false);
     }
     setShowMenu(false);
-  };
+  }, [user, isOwnPost, isDeleting, post.id]);
 
-  const handleSaveEdit = async (e: React.MouseEvent) => {
+  // ── Edit ──────────────────────────────────────────────────────────────────
+  const handleSaveEdit = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!editContent.trim() || isSavingEdit) return;
     setIsSavingEdit(true);
@@ -315,18 +369,18 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
       await updateDoc(doc(db, 'posts', post.id), { text: editContent.trim() });
       toast.success('Post updated');
       setIsEditing(false);
-    } catch {
-      toast.error('Failed to update post');
+    } catch (err) {
+      toast.error('Failed to update post. Please try again.');
+      console.error('Edit error:', err);
     } finally {
       setIsSavingEdit(false);
     }
-  };
+  }, [editContent, isSavingEdit, post.id]);
 
-  // ✅ FIX: real likesCount from Firestore (comes via post prop from onSnapshot)
-  const likesCount  = post.likesCount  ?? 0;
-  // ✅ FIX: real commentsCount — stored in Firestore, incremented on each comment add
+  // Displayed counts — optimistic for likes, real value from Firestore for rest
+  const likesCount    = optimisticLikes ?? (post.likesCount ?? 0);
   const commentsCount = post.commentsCount ?? 0;
-  const sharesCount = post.sharesCount ?? 0;
+  const sharesCount   = post.sharesCount ?? 0;
 
   return (
     <>
@@ -359,7 +413,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
                 </span>
               </div>
 
-              {/* ✅ FIX: menu only for own posts, properly scoped */}
+              {/* Menu — only for own posts */}
               {isOwnPost && (
                 <div className="relative flex-shrink-0" ref={menuRef}>
                   <button
@@ -417,6 +471,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
                   onChange={(e) => setEditContent(e.target.value)}
                   className="w-full bg-accent/30 border border-border rounded-xl px-3 py-2 text-[15px] outline-none focus:border-primary transition-colors resize-none min-h-[80px]"
                   autoFocus
+                  maxLength={2200}
                 />
                 <div className="flex gap-2">
                   <button
@@ -479,12 +534,13 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
               </div>
             )}
 
-            {/* ── Action bar ──────────────────────────────────────────────── */}
+            {/* Action bar */}
             <div className="mt-4 flex items-center justify-between max-w-xs text-muted-foreground">
-              {/* Like — ✅ FIX: fill + color driven by isLiked computed from array */}
+              {/* Like */}
               <button
                 onClick={handleLike}
-                disabled={isLiking}
+                disabled={!user || isLiking}
+                aria-label={isLiked ? 'Unlike' : 'Like'}
                 className={cn(
                   'flex items-center gap-1.5 transition-colors hover:text-pink-500 disabled:opacity-50 group',
                   isLiked && 'text-pink-500'
@@ -496,33 +552,34 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
                     isLiked && 'fill-current'
                   )}
                 />
-                {/* ✅ FIX: real count from Firestore */}
-                <span className="text-sm tabular-nums">{likesCount}</span>
+                <span className="text-sm tabular-nums">{likesCount > 0 ? likesCount : ''}</span>
               </button>
 
-              {/* Comment — navigates to PostDetails which shows real count */}
+              {/* Comment */}
               <button
                 onClick={(e) => { e.stopPropagation(); navigate(`/post/${post.id}?focus=comment`); }}
+                aria-label="Comment"
                 className="flex items-center gap-1.5 transition-colors hover:text-blue-500"
               >
                 <MessageCircle className="w-5 h-5" />
-                {/* ✅ FIX: real commentsCount from Firestore, incremented on each comment */}
-                <span className="text-sm tabular-nums">{commentsCount}</span>
+                <span className="text-sm tabular-nums">{commentsCount > 0 ? commentsCount : ''}</span>
               </button>
 
               {/* Share */}
               <button
                 onClick={(e) => { e.stopPropagation(); setShowShareSheet(true); }}
+                aria-label="Share"
                 className="flex items-center gap-1.5 transition-colors hover:text-green-500"
               >
                 <Share2 className="w-5 h-5" />
                 {sharesCount > 0 && <span className="text-sm tabular-nums">{sharesCount}</span>}
               </button>
 
-              {/* Save — ✅ FIX: fill + color driven by isSaved computed from array */}
+              {/* Save */}
               <button
                 onClick={handleSave}
-                disabled={isSaving}
+                disabled={!user || isSaving}
+                aria-label={isSaved ? 'Unsave' : 'Save'}
                 className={cn(
                   'flex items-center gap-1.5 transition-colors hover:text-primary disabled:opacity-50 group',
                   isSaved && 'text-primary'
