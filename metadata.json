@@ -1,0 +1,8 @@
+{
+  "name": "NETOLYNK",
+  "description": "A full-scale social media platform by NGAI - Nishal Global AI. Features real-time chat, algorithmic feed, and rich media sharing.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

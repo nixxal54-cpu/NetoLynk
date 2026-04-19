@@ -1,0 +1,138 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user profile in the Netolynk platform.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "username": { "type": "string", "description": "Unique username" },
+        "displayName": { "type": "string", "description": "Public display name" },
+        "email": { "type": "string", "format": "email" },
+        "bio": { "type": "string", "description": "User biography" },
+        "profileImage": { "type": "string", "format": "uri" },
+        "coverImage": { "type": "string", "format": "uri" },
+        "followersCount": { "type": "number", "description": "Total followers" },
+        "followingCount": { "type": "number", "description": "Total following" },
+        "postsCount": { "type": "number", "description": "Total posts" },
+        "verified": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "username", "displayName", "email", "createdAt"]
+    },
+    "Post": {
+      "title": "Post",
+      "description": "A post shared by a user.",
+      "type": "object",
+      "properties": {
+        "postId": { "type": "string" },
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "userProfileImage": { "type": "string" },
+        "text": { "type": "string" },
+        "mediaUrls": { "type": "array", "items": { "type": "string" } },
+        "type": { "type": "string", "enum": ["text", "image", "video"] },
+        "likesCount": { "type": "number" },
+        "commentsCount": { "type": "number" },
+        "sharesCount": { "type": "number" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "mentions": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "username", "type", "createdAt"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "A comment on a post.",
+      "type": "object",
+      "properties": {
+        "commentId": { "type": "string" },
+        "postId": { "type": "string" },
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "userProfileImage": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["postId", "userId", "username", "text", "createdAt"]
+    },
+    "Like": {
+      "title": "Like",
+      "description": "A like interaction.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "postId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "postId", "createdAt"]
+    },
+    "Follow": {
+      "title": "Follow",
+      "description": "A follow relationship.",
+      "type": "object",
+      "properties": {
+        "followerId": { "type": "string" },
+        "followingId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["followerId", "followingId", "createdAt"]
+    },
+    "Chat": {
+      "title": "Chat",
+      "description": "A conversation between two users.",
+      "type": "object",
+      "properties": {
+        "chatId": { "type": "string" },
+        "participants": { "type": "array", "items": { "type": "string" } },
+        "lastMessage": { "type": "string" },
+        "lastMessageAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["participants", "updatedAt"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "A message in a chat.",
+      "type": "object",
+      "properties": {
+        "messageId": { "type": "string" },
+        "chatId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "text": { "type": "string" },
+        "mediaUrl": { "type": "string" },
+        "type": { "type": "string", "enum": ["text", "image"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["chatId", "senderId", "type", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "A notification for a user.",
+      "type": "object",
+      "properties": {
+        "notificationId": { "type": "string" },
+        "recipientId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderUsername": { "type": "string" },
+        "senderProfileImage": { "type": "string" },
+        "type": { "type": "string", "enum": ["like", "comment", "follow", "message"] },
+        "postId": { "type": "string" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["recipientId", "senderId", "type", "read", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": { "schema": "User", "description": "User profiles" },
+    "/posts/{postId}": { "schema": "Post", "description": "Social media posts" },
+    "/posts/{postId}/comments/{commentId}": { "schema": "Comment", "description": "Comments on posts" },
+    "/posts/{postId}/likes/{userId}": { "schema": "Like", "description": "Likes on posts" },
+    "/users/{userId}/followers/{followerId}": { "schema": "Follow", "description": "Followers of a user" },
+    "/users/{userId}/following/{followingId}": { "schema": "Follow", "description": "Users followed by a user" },
+    "/chats/{chatId}": { "schema": "Chat", "description": "Direct message conversations" },
+    "/chats/{chatId}/messages/{messageId}": { "schema": "Message", "description": "Messages in a chat" },
+    "/notifications/{notificationId}": { "schema": "Notification", "description": "User notifications" }
+  }
+}
