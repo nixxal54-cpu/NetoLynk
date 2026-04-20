@@ -13,13 +13,14 @@ import { cn } from '../../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   doc, deleteDoc, setDoc, getDoc, serverTimestamp, 
-  updateDoc, increment, collection, query, where, getDocs, addDoc
+  updateDoc, increment, collection, query, where, getDocs, addDoc,
+  arrayUnion, arrayRemove
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { toast } from 'sonner';
 
 // ----------------------------------------------------------------------------
-// 1. MOOD ICON HELPER (Exported for CreatePost & CreatePostPage)
+// 1. MOOD ICON HELPER
 // ----------------------------------------------------------------------------
 export const getMoodIconByLabel = (label: string) => {
   switch (label) {
@@ -36,7 +37,7 @@ export const getMoodIconByLabel = (label: string) => {
 };
 
 // ----------------------------------------------------------------------------
-// 2. MEMORY-SAFE CACHE (Prevents N+1 Firestore Reads)
+// 2. MEMORY CACHE (Prevents N+1 Reads)
 // ----------------------------------------------------------------------------
 const interactionCache = new Map<string, boolean>();
 const setCache = (key: string, value: boolean) => {
@@ -45,7 +46,7 @@ const setCache = (key: string, value: boolean) => {
 };
 
 // ----------------------------------------------------------------------------
-// 3. SHARE SHEET COMPONENT
+// 3. SHARE SHEET
 // ----------------------------------------------------------------------------
 const ShareSheet: React.FC<{ post: Post; onClose: () => void }> = ({ post, onClose }) => {
   const { user } = useAuth();
@@ -79,7 +80,7 @@ const ShareSheet: React.FC<{ post: Post; onClose: () => void }> = ({ post, onClo
         if (cancelled) return;
         setFollowingUsers(results.flatMap(snap => snap.docs.map(d => ({ ...d.data(), uid: d.id } as User))));
       } catch (e) { 
-        console.error(e); 
+        console.error("SHARE SHEET FETCH ERROR:", e); 
       } finally { 
         if (!cancelled) setLoadingFollowing(false); 
       }
@@ -140,7 +141,7 @@ const ShareSheet: React.FC<{ post: Post; onClose: () => void }> = ({ post, onClo
       setSent(prev => new Set(prev).add(recipient.uid));
       toast.success(`Sent to @${recipient.username}`);
     } catch (err) { 
-      console.error(err);
+      console.error("SEND TO USER ERROR:", err);
       toast.error('Failed to send. Try again.'); 
     } finally { 
       setSending(null); 
@@ -268,54 +269,48 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
   const [isSaved, setIsSaved] = useState(false);
   const [localLikesCount, setLocalLikesCount] = useState(post.likesCount || 0);
 
-  // Fetch Interactions (Subcollections only)
+  // 1. Initial Fetch logic
   useEffect(() => {
     isMounted.current = true;
     if (!user?.uid || !post.id) return;
 
     const likeKey = `${user.uid}:${post.id}:like`;
-    const saveKey = `${user.uid}:${post.id}:save`;
+    
+    // For 'Saved', we read directly from the post prop to avoid permission denied errors
+    // because Firestore rules block reading from `/users/{uid}/savedPosts` but allow arrays on post
+    setIsSaved((post.savedBy ?? []).includes(user.uid));
 
     const fetchInteractions = async () => {
       try {
-        if (interactionCache.has(likeKey) && interactionCache.has(saveKey)) {
+        if (interactionCache.has(likeKey)) {
           setIsLiked(interactionCache.get(likeKey)!);
-          setIsSaved(interactionCache.get(saveKey)!);
           return;
         }
 
-        const [likeSnap, saveSnap] = await Promise.all([
-          getDoc(doc(db, `posts/${post.id}/likes/${user.uid}`)),
-          getDoc(doc(db, `users/${user.uid}/savedPosts/${post.id}`))
-        ]);
+        const likeSnap = await getDoc(doc(db, `posts/${post.id}/likes/${user.uid}`));
         
         if (isMounted.current) {
           const liked = likeSnap.exists();
-          const saved = saveSnap.exists();
-          
           setCache(likeKey, liked);
-          setCache(saveKey, saved);
-          
           setIsLiked(liked);
-          setIsSaved(saved);
         }
       } catch (err) {
-        console.error("Failed to fetch interactions:", err);
+        console.error("LIKE FETCH ERROR:", err);
       }
     };
 
     fetchInteractions();
     return () => { isMounted.current = false; };
-  }, [user?.uid, post.id]);
+  }, [user?.uid, post.id, post.savedBy]);
 
-  // Sync server likesCount safely
+  // 2. Sync server likesCount safely (Time-based lock for optimistic UI)
   useEffect(() => {
     if (!syncLock.current && isMounted.current) {
       setLocalLikesCount(post.likesCount || 0);
     }
   }, [post.likesCount]);
 
-  // Click-away listener for Menu
+  // 3. Click-away listener for Menu
   useEffect(() => {
     if (!showMenu) return;
     const handleOutsideClick = (e: MouseEvent) => {
@@ -343,11 +338,12 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
     setCache(likeKey, !wasLiked);
     setIsLiking(true);
 
-    // Sync Lock
+    // Apply Sync Lock
     if (syncLock.current) clearTimeout(syncLock.current);
     syncLock.current = setTimeout(() => { syncLock.current = null; }, 3000);
 
     try {
+      // Write to subcollection (Triggers Cloud Function for likesCount)
       const likeRef = doc(db, `posts/${post.id}/likes/${user.uid}`);
       if (wasLiked) {
         await deleteDoc(likeRef);
@@ -355,7 +351,7 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
         await setDoc(likeRef, { userId: user.uid, createdAt: serverTimestamp() });
       }
     } catch (err) {
-      console.error("Like error:", err);
+      console.error("FULL LIKE ERROR:", err);
       if (isMounted.current) {
         setIsLiked(wasLiked); // Rollback
         setLocalLikesCount(prev => Math.max(0, wasLiked ? prev + 1 : prev - 1));
@@ -373,26 +369,23 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
     if (isSaving) return;
 
     const wasSaved = isSaved;
-    const saveKey = `${user.uid}:${post.id}:save`;
-
     setIsSaved(!wasSaved);
-    setCache(saveKey, !wasSaved);
     setIsSaving(true);
 
     try {
-      const saveRef = doc(db, `users/${user.uid}/savedPosts/${post.id}`);
-      if (wasSaved) {
-        await deleteDoc(saveRef);
-        toast.success("Removed from bookmarks");
-      } else {
-        await setDoc(saveRef, { postId: post.id, savedAt: serverTimestamp() });
-        toast.success("Saved to bookmarks");
-      }
+      console.log("Saving post:", user.uid, post.id);
+      const postRef = doc(db, 'posts', post.id);
+      
+      // FIX: Writing to the post document directly, matching line 102 of firestore.rules
+      await updateDoc(postRef, {
+        savedBy: wasSaved ? arrayRemove(user.uid) : arrayUnion(user.uid)
+      });
+      
+      toast.success(wasSaved ? "Removed from bookmarks" : "Saved to bookmarks");
     } catch (err) {
-      console.error("Save error:", err);
+      console.error("FULL SAVE ERROR:", err);
       if (isMounted.current) {
         setIsSaved(wasSaved); // Rollback
-        setCache(saveKey, wasSaved);
       }
       toast.error("Failed to save post");
     } finally {
@@ -410,7 +403,7 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
       await deleteDoc(doc(db, 'posts', post.id));
       toast.success("Post deleted successfully");
     } catch (err) {
-      console.error("Delete error:", err);
+      console.error("FULL DELETE ERROR:", err);
       if (isMounted.current) setIsDeleting(false);
       toast.error("Failed to delete post");
     }
@@ -429,7 +422,6 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
         // User cancelled share
       }
     } else {
-      // Fallback to custom sheet silently
       setShowShareSheet(true); 
     }
   }, [post]);
@@ -438,7 +430,7 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
     if (!isDeleting) navigate(`/post/${post.id}`);
   };
 
-  // Safe Data Parsing
+  // Safe Date Parsing
   const parsedDate = post.createdAt?.toDate?.() || new Date(post.createdAt);
   const fallbackAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.username}`;
   const avatarSrc = avatarFailed || !post.userProfileImage ? fallbackAvatar : post.userProfileImage;
@@ -541,6 +533,7 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
             </p>
           )}
 
+          {/* Media Grid - Fixed Layout & Error Handling */}
           {post.mediaUrls?.length > 0 && (
             <div className={cn(
               "mt-3 rounded-2xl overflow-hidden border border-border grid gap-0.5 bg-accent/20",
@@ -549,9 +542,9 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
               {post.mediaUrls.map((url) => {
                 if (failedImages.has(url)) {
                   return (
-                    <div key={url} className="flex flex-col items-center justify-center bg-accent/30 h-48 text-muted-foreground gap-2">
+                    <div key={url} className={cn("flex flex-col items-center justify-center bg-accent/30 text-muted-foreground gap-2", post.mediaUrls.length === 1 ? "aspect-square max-h-[500px]" : "aspect-square")}>
                       <ImageOff className="w-6 h-6" />
-                      <span className="text-xs font-medium">Image unavailable</span>
+                      <span className="text-xs font-medium">Unavailable</span>
                     </div>
                   );
                 }
@@ -565,7 +558,10 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
                       next.add(url);
                       return next;
                     })}
-                    className="w-full h-full object-cover max-h-[500px] hover:opacity-95 transition-opacity" 
+                    className={cn(
+                      "w-full object-cover hover:opacity-95 transition-opacity",
+                      post.mediaUrls.length === 1 ? "max-h-[500px]" : "aspect-square"
+                    )} 
                     alt="Post content" 
                     loading="lazy"
                   />
@@ -589,7 +585,7 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
                 <Heart className={cn("w-5 h-5 transition-transform duration-150", isLiked && "fill-current text-pink-500", isLiking && "scale-110")} />
               </div>
               <span className="text-xs font-medium tabular-nums min-w-[2ch]">
-                {localLikesCount > 0 ? localLikesCount : ''}
+                {localLikesCount}
               </span>
             </button>
 
@@ -602,7 +598,7 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
                 <MessageCircle className="w-5 h-5 transition-transform duration-150 group-active:scale-95" />
               </div>
               <span className="text-xs font-medium tabular-nums min-w-[2ch]">
-                {post.commentsCount > 0 ? post.commentsCount : ''}
+                {post.commentsCount}
               </span>
             </button>
 
