@@ -112,5 +112,10 @@ service cloud.firestore {
                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
       allow delete: if isAuthenticated() && resource.data.recipientId == request.auth.uid;
     }
+    // --- DEMO SEED SENTINEL ---
+    match /meta/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
   }
 }
