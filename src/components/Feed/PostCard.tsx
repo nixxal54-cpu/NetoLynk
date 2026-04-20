@@ -46,7 +46,7 @@ const setCache = (key: string, value: boolean) => {
 };
 
 // ----------------------------------------------------------------------------
-// 3. SHARE SHEET
+// 3. SLIDE-UP SHARE SHEET
 // ----------------------------------------------------------------------------
 const ShareSheet: React.FC<{ post: Post; onClose: () => void }> = ({ post, onClose }) => {
   const { user } = useAuth();
@@ -276,8 +276,6 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
 
     const likeKey = `${user.uid}:${post.id}:like`;
     
-    // For 'Saved', we read directly from the post prop to avoid permission denied errors
-    // because Firestore rules block reading from `/users/{uid}/savedPosts` but allow arrays on post
     setIsSaved((post.savedBy ?? []).includes(user.uid));
 
     const fetchInteractions = async () => {
@@ -303,7 +301,7 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
     return () => { isMounted.current = false; };
   }, [user?.uid, post.id, post.savedBy]);
 
-  // 2. Sync server likesCount safely (Time-based lock for optimistic UI)
+  // 2. Sync server likesCount safely
   useEffect(() => {
     if (!syncLock.current && isMounted.current) {
       setLocalLikesCount(post.likesCount || 0);
@@ -332,18 +330,15 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
     const wasLiked = isLiked;
     const likeKey = `${user.uid}:${post.id}:like`;
     
-    // Optimistic Update
     setIsLiked(!wasLiked);
     setLocalLikesCount(prev => Math.max(0, wasLiked ? prev - 1 : prev + 1));
     setCache(likeKey, !wasLiked);
     setIsLiking(true);
 
-    // Apply Sync Lock
     if (syncLock.current) clearTimeout(syncLock.current);
     syncLock.current = setTimeout(() => { syncLock.current = null; }, 3000);
 
     try {
-      // Write to subcollection (Triggers Cloud Function for likesCount)
       const likeRef = doc(db, `posts/${post.id}/likes/${user.uid}`);
       if (wasLiked) {
         await deleteDoc(likeRef);
@@ -353,7 +348,7 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
     } catch (err) {
       console.error("FULL LIKE ERROR:", err);
       if (isMounted.current) {
-        setIsLiked(wasLiked); // Rollback
+        setIsLiked(wasLiked);
         setLocalLikesCount(prev => Math.max(0, wasLiked ? prev + 1 : prev - 1));
         setCache(likeKey, wasLiked);
       }
@@ -373,20 +368,14 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
     setIsSaving(true);
 
     try {
-      console.log("Saving post:", user.uid, post.id);
       const postRef = doc(db, 'posts', post.id);
-      
-      // FIX: Writing to the post document directly, matching line 102 of firestore.rules
       await updateDoc(postRef, {
         savedBy: wasSaved ? arrayRemove(user.uid) : arrayUnion(user.uid)
       });
-      
       toast.success(wasSaved ? "Removed from bookmarks" : "Saved to bookmarks");
     } catch (err) {
       console.error("FULL SAVE ERROR:", err);
-      if (isMounted.current) {
-        setIsSaved(wasSaved); // Rollback
-      }
+      if (isMounted.current) setIsSaved(wasSaved); 
       toast.error("Failed to save post");
     } finally {
       if (isMounted.current) setIsSaving(false);
@@ -409,28 +398,16 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
     }
   }, [isDeleting, post.id]);
 
+  // FIX: Immediately opens the custom Share Sheet layout!
   const handleShare = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: `Post by @${post.username}`,
-          text: post.text?.slice(0, 100) || 'Check out this post on NetoLynk',
-          url: `${window.location.origin}/post/${post.id}`,
-        });
-      } catch (err) {
-        // User cancelled share
-      }
-    } else {
-      setShowShareSheet(true); 
-    }
-  }, [post]);
+    setShowShareSheet(true); 
+  }, []);
 
   const navigateToPost = () => {
     if (!isDeleting) navigate(`/post/${post.id}`);
   };
 
-  // Safe Date Parsing
   const parsedDate = post.createdAt?.toDate?.() || new Date(post.createdAt);
   const fallbackAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.username}`;
   const avatarSrc = avatarFailed || !post.userProfileImage ? fallbackAvatar : post.userProfileImage;
@@ -471,7 +448,6 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
         </div>
 
         <div className="flex-1 min-w-0">
-          {/* Header */}
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1 truncate">
               <span 
@@ -533,7 +509,6 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
             </p>
           )}
 
-          {/* Media Grid - Fixed Layout & Error Handling */}
           {post.mediaUrls?.length > 0 && (
             <div className={cn(
               "mt-3 rounded-2xl overflow-hidden border border-border grid gap-0.5 bg-accent/20",
@@ -585,7 +560,7 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
                 <Heart className={cn("w-5 h-5 transition-transform duration-150", isLiked && "fill-current text-pink-500", isLiking && "scale-110")} />
               </div>
               <span className="text-xs font-medium tabular-nums min-w-[2ch]">
-                {localLikesCount}
+                {localLikesCount > 0 ? localLikesCount : ''}
               </span>
             </button>
 
@@ -598,7 +573,7 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
                 <MessageCircle className="w-5 h-5 transition-transform duration-150 group-active:scale-95" />
               </div>
               <span className="text-xs font-medium tabular-nums min-w-[2ch]">
-                {post.commentsCount}
+                {post.commentsCount || 0}
               </span>
             </button>
 
