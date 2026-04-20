@@ -19,14 +19,14 @@ import { Settings } from './pages/Settings';
 import { Activity } from './pages/Activity';
 import { Loader2 } from 'lucide-react';
 import { useNetolynkSystem } from './hooks/useNetolynkSystem';
-import { useDemoBot } from './hooks/useDemoBot';
+import { useDemoSeed } from './hooks/useDemoSeed';
 import { usePushNotifications } from './hooks/usePushNotifications';
 
 const AppContent: React.FC = () => {
   const { firebaseUser, loading } = useAuth();
   
   useNetolynkSystem();
-  useDemoBot();
+  useDemoSeed();
   usePushNotifications();
 
   if (loading) {
