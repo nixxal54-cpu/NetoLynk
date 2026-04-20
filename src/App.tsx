@@ -19,10 +19,13 @@ import { Settings } from './pages/Settings';
 import { Activity } from './pages/Activity';
 import { Loader2 } from 'lucide-react';
 import { useNetolynkSystem } from './hooks/useNetolynkSystem';
+import { useDemoBot } from './hooks/useDemoBot'; // 🔥 Added Bot Import
 
 const AppContent: React.FC = () => {
   const { firebaseUser, loading } = useAuth();
+  
   useNetolynkSystem();
+  useDemoBot(); // 🔥 Added Bot Hook Call
 
   if (loading) {
     return (
