@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PostCard, getMoodIconByLabel } from '../components/Feed/PostCard';
 import { CreatePost } from '../components/Feed/CreatePost';
@@ -10,6 +10,24 @@ import { cn } from '../lib/utils';
 import { useInfiniteFeed } from '../hooks/useInfiniteScroll';
 import { useAuth } from '../context/AuthContext';
 
+// --- GRAVITY ALGORITHM ---
+// Calculates how "viral" a post is based on engagement vs. time
+const calculatePostScore = (post: Post) => {
+  const likes = post.likesCount || 0;
+  const comments = post.commentsCount || 0;
+  const shares = post.sharesCount || 0;
+  
+  // 1 Like = 1 point, 1 Comment = 3 points, 1 Share = 5 points
+  const engagementScore = (likes * 1) + (comments * 3) + (shares * 5);
+  
+  // Calculate age in hours
+  const hoursAge = (Date.now() - new Date(post.createdAt).getTime()) / (1000 * 60 * 60);
+  
+  // Gravity formula: Engagement / (Age + 2)^1.5
+  // This makes sure 100 likes today ranks higher than 100 likes last week!
+  return engagementScore / Math.pow(hoursAge + 2, 1.5);
+};
+
 export const Home: React.FC = () => {
   usePageTitle('Home');
   const navigate = useNavigate();
@@ -18,7 +36,6 @@ export const Home: React.FC = () => {
   const { data: posts, loading, loadingMore, hasMore, fetchMore } = useInfiniteFeed<Post>('posts');
   const sentinelRef = useRef<HTMLDivElement>(null);
 
-  // Infinite scroll observer
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
@@ -30,11 +47,20 @@ export const Home: React.FC = () => {
     return () => observer.disconnect();
   }, [hasMore, loadingMore, fetchMore]);
 
-  const displayedPosts = activeFeed === 'vibes'
-    ? posts.filter(p => p.mood)
-    : activeFeed === 'following'
-    ? posts.filter(p => user?.following?.includes(p.userId))
-    : posts;
+  // Memoize the sorted feeds so it doesn't recalculate on every render
+  const displayedPosts = useMemo(() => {
+    if (activeFeed === 'vibes') {
+      return posts.filter(p => p.mood);
+    }
+    if (activeFeed === 'following') {
+      return posts.filter(p => user?.following?.includes(p.userId));
+    }
+    if (activeFeed === 'for-you') {
+      // Sort posts using our Algorithmic Gravity Score
+      return [...posts].sort((a, b) => calculatePostScore(b) - calculatePostScore(a));
+    }
+    return posts;
+  }, [posts, activeFeed, user?.following]);
 
   const vibeRooms = ['Hyped', 'Peaceful', 'Frustrated', 'Dead inside'];
 
@@ -111,21 +137,16 @@ export const Home: React.FC = () => {
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                   className="p-12 text-center text-muted-foreground">
                   <p className="text-lg font-medium">No posts yet</p>
-                  <p>{activeFeed === 'vibes' ? 'No one has shared their vibe yet.' : 'Be the first to share something!'}</p>
                 </motion.div>
               )}
             </AnimatePresence>
 
-            {/* Infinite scroll sentinel */}
             <div ref={sentinelRef} className="py-4 flex justify-center">
               {loadingMore && (
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <Loader2 className="w-5 h-5 animate-spin" />
                   <span className="text-sm">Loading more posts...</span>
                 </div>
-              )}
-              {!hasMore && displayedPosts.length > 0 && (
-                <p className="text-sm text-muted-foreground py-4">You've seen all posts ✨</p>
               )}
             </div>
           </div>
