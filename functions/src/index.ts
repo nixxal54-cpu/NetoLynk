@@ -48,7 +48,7 @@ export const onPostCreatedNotification = functions.firestore.onDocumentCreated(
         senderId: userId,
         senderUsername: postData.username,
         senderProfileImage: postData.userProfileImage || '',
-        type: 'message', // You can add 'post' as a type in your UI later
+        type: 'post_alert',
         text: `${postData.username} just shared a new post!`,
         postId: event.params.postId,
         read: false,
