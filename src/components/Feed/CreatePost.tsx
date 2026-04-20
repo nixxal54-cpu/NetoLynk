@@ -103,7 +103,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({ onPostCreated }) => {
           
           <MentionTextarea
             value={text}
-            onValueChange={setText}
+            onChange={(e) => setText(e.target.value)} // <--- This fixes the typing!
             placeholder={selectedMood ? `Why are you feeling ${selectedMood.label.toLowerCase()}?` : "What's happening? Type @ to mention"}
             className="w-full bg-transparent border-none focus:ring-0 text-xl min-h-[100px] placeholder:text-muted-foreground text-base"
           />
