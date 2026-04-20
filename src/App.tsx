@@ -19,8 +19,7 @@ import { Settings } from './pages/Settings';
 import { Activity } from './pages/Activity';
 import { Loader2 } from 'lucide-react';
 import { useNetolynkSystem } from './hooks/useNetolynkSystem';
-import { useDemoBot } from './hooks/useDemoBot'; // 🔥 Added Bot Import
-// Add to imports
+import { useDemoBot } from './hooks/useDemoBot';
 import { usePushNotifications } from './hooks/usePushNotifications';
 
 const AppContent: React.FC = () => {
@@ -28,14 +27,7 @@ const AppContent: React.FC = () => {
   
   useNetolynkSystem();
   useDemoBot();
-  usePushNotifications(); // <--- ADD THIS
-
-  // ... rest of your code
-const AppContent: React.FC = () => {
-  const { firebaseUser, loading } = useAuth();
-  
-  useNetolynkSystem();
-  useDemoBot(); // 🔥 Added Bot Hook Call
+  usePushNotifications();
 
   if (loading) {
     return (
@@ -96,7 +88,6 @@ const AppContent: React.FC = () => {
         </div>
       </div>
 
-      {/* ✅ Account Switcher bottom sheet — renders on top of everything */}
       <AccountSwitcher />
       <BottomNav />
     </div>
