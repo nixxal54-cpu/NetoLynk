@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useCollection } from '../hooks/useFirestore';
 import { where, orderBy, limit, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { Bell, Loader2, Heart, MessageCircle, UserPlus, Sparkles } from 'lucide-react';
+import { Bell, Loader2, Heart, MessageCircle, UserPlus, Sparkles, Image as ImageIcon } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
@@ -15,7 +15,8 @@ interface Notification {
   senderId: string;
   senderUsername: string;
   senderProfileImage: string;
-  type: 'like' | 'comment' | 'follow' | 'system';
+  // Updated type to include post_alert
+  type: 'like' | 'comment' | 'follow' | 'system' | 'post_alert';
   postId?: string;
   text?: string;
   read: boolean;
@@ -29,53 +30,43 @@ export const Notifications: React.FC = () => {
 
   const { data: userNotifications, loading: userLoading } = useCollection<Notification>(
     'notifications',
-    user
-      ? [
-          where('recipientId', '==', user.uid),
-          orderBy('createdAt', 'desc'),
-          limit(50),
-        ]
-      : [],
+    user ? [where('recipientId', '==', user.uid), orderBy('createdAt', 'desc'), limit(50)] : [],
     [user?.uid]
   );
 
   const { data: systemNotifications, loading: systemLoading } = useCollection<Notification>(
     'notifications',
-    [
-      where('recipientId', '==', 'all'),
-      orderBy('createdAt', 'desc'),
-      limit(20),
-    ]
+    [where('recipientId', '==', 'all'), orderBy('createdAt', 'desc'), limit(20)]
   );
 
   const loading = userLoading || systemLoading;
-
   const allNotifications = [...userNotifications, ...systemNotifications].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 
   const markAsRead = useCallback(async (notification: Notification) => {
-    // System notifications have no per-user read state; skip them
     if (notification.recipientId === 'all' || notification.read) return;
     try {
       await updateDoc(doc(db, 'notifications', notification.id), { read: true });
-    } catch {
-      // Non-critical — don't surface to user
+    } catch (err) {
+      console.error("Error marking read:", err);
     }
   }, []);
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
-      case 'like':    return <Heart className="w-5 h-5 text-pink-500 fill-pink-500" />;
-      case 'comment': return <MessageCircle className="w-5 h-5 text-primary" />;
-      case 'follow':  return <UserPlus className="w-5 h-5 text-green-500" />;
-      case 'system':  return <Sparkles className="w-5 h-5 text-primary" />;
-      default:        return <Bell className="w-5 h-5 text-muted-foreground" />;
+      case 'like':        return <Heart className="w-5 h-5 text-pink-500 fill-pink-500" />;
+      case 'comment':     return <MessageCircle className="w-5 h-5 text-primary" />;
+      case 'follow':      return <UserPlus className="w-5 h-5 text-green-500" />;
+      case 'post_alert':  return <Sparkles className="w-5 h-5 text-yellow-500" />;
+      case 'system':      return <Sparkles className="w-5 h-5 text-primary" />;
+      default:            return <Bell className="w-5 h-5 text-muted-foreground" />;
     }
   };
 
   const getNotificationText = (notification: Notification) => {
     if (notification.type === 'system') return notification.text;
+    if (notification.type === 'post_alert') return 'just shared a new post!';
     switch (notification.type) {
       case 'like':    return 'liked your post.';
       case 'comment': return 'commented on your post.';
@@ -105,9 +96,7 @@ export const Notifications: React.FC = () => {
           <button
             onClick={async () => {
               const unread = userNotifications.filter(n => !n.read);
-              await Promise.all(
-                unread.map(n => updateDoc(doc(db, 'notifications', n.id), { read: true }))
-              );
+              await Promise.all(unread.map(n => updateDoc(doc(db, 'notifications', n.id), { read: true })));
             }}
             className="text-sm text-primary hover:underline"
           >
@@ -126,15 +115,15 @@ export const Notifications: React.FC = () => {
             <div 
               key={notification.id}
               onClick={() => handleNotificationClick(notification)}
-              className={`p-4 hover:bg-accent/5 transition-colors cursor-pointer flex gap-4 ${
-                !notification.read && notification.recipientId !== 'all'
-                  ? 'bg-primary/5 border-l-2 border-l-primary'
-                  : ''
-              }`}
+              className={cn(
+                "p-4 hover:bg-accent/5 transition-colors cursor-pointer flex gap-4",
+                !notification.read && notification.recipientId !== 'all' && "bg-primary/5 border-l-2 border-l-primary"
+              )}
             >
-              <div className="pt-1">
+              <div className="pt-1 flex-shrink-0">
                 {getNotificationIcon(notification.type)}
               </div>
+              
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <img 
@@ -143,29 +132,24 @@ export const Notifications: React.FC = () => {
                     className="w-8 h-8 rounded-full object-cover"
                     loading="lazy"
                   />
-                  <span
-                    className="font-bold hover:underline"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (notification.type !== 'system') navigate(`/profile/${notification.senderUsername}`);
-                    }}
-                  >
+                  <span className="font-bold hover:underline">
                     {notification.senderUsername}
                   </span>
                   {notification.type === 'system' && (
                     <span className="bg-primary/10 text-primary text-[10px] uppercase font-bold px-2 py-0.5 rounded-full">Official</span>
                   )}
-                  {!notification.read && notification.recipientId !== 'all' && (
-                    <span className="ml-auto w-2 h-2 rounded-full bg-primary flex-shrink-0" />
-                  )}
                 </div>
+                
                 <p className="text-[15px] text-foreground/90">
-                  {notification.type === 'system' ? (
-                    <span className="font-medium">{notification.text}</span>
-                  ) : (
-                    <span className="text-muted-foreground">{getNotificationText(notification)}</span>
-                  )}
+                  <span className="text-muted-foreground">{getNotificationText(notification)}</span>
                 </p>
+
+                {notification.type === 'post_alert' && (
+                  <div className="mt-2 flex items-center gap-2 text-xs text-primary font-medium">
+                    <ImageIcon className="w-4 h-4" /> Tap to view post
+                  </div>
+                )}
+
                 <p className="text-xs text-muted-foreground mt-2">
                   {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
                 </p>
