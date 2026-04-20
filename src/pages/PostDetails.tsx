@@ -266,10 +266,10 @@ export const PostDetails: React.FC = () => {
             
             <MentionTextarea
               value={newComment}
-              onValueChange={setNewComment}
+              onChange={(e) => setNewComment(e.target.value)} // <--- This fixes the typing!
               onKeyDown={handleKeyDown}
               placeholder="Post your reply... Type @ to mention"
-              className="flex-1 bg-accent/30 border border-border rounded-2xl px-4 py-3 text-base md:text-sm min-h-[46px] max-h-[120px] overflow-y-auto"
+              className="flex-1 bg-accent/30 border border-border rounded-2xl px-4 py-3 text-base md:text-sm min-h-[46px] max-h-[120px] overflow-y-auto scrollbar-hide"
               rows={1}
             />
             
