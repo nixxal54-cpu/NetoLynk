@@ -60,6 +60,23 @@ export const onFollowingWrite = functions.firestore.onDocumentWritten(
   }
 );
 
+export const sendPushNotification = functions.https.onCall(async (request) => {
+  const { recipientId, title, body } = request.data;
+  
+  // 1. Get the recipient's fcmToken from Firestore
+  const userDoc = await db.collection('users').doc(recipientId).get();
+  const token = userDoc.data()?.fcmToken;
+
+  if (!token) return { success: false };
+
+  // 2. Send via Firebase Admin Messaging
+  await admin.messaging().send({
+    token: token,
+    notification: { title, body }
+  });
+
+  return { success: true };
+});
 /**
  * Recalculates commentsCount on a post whenever a document is written to
  * posts/{postId}/comments/{commentId}.
