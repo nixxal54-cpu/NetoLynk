@@ -20,7 +20,17 @@ import { Activity } from './pages/Activity';
 import { Loader2 } from 'lucide-react';
 import { useNetolynkSystem } from './hooks/useNetolynkSystem';
 import { useDemoBot } from './hooks/useDemoBot'; // 🔥 Added Bot Import
+// Add to imports
+import { usePushNotifications } from './hooks/usePushNotifications';
 
+const AppContent: React.FC = () => {
+  const { firebaseUser, loading } = useAuth();
+  
+  useNetolynkSystem();
+  useDemoBot();
+  usePushNotifications(); // <--- ADD THIS
+
+  // ... rest of your code
 const AppContent: React.FC = () => {
   const { firebaseUser, loading } = useAuth();
   
