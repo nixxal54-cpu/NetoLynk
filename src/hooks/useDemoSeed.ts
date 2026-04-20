@@ -1,39 +1,33 @@
 import { useEffect } from 'react';
-import { collection, doc, getDoc, setDoc, writeBatch } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 
 const PERSONAS = [
-  { uid: 'demo_user_arjun_dev', username: 'arjun.builds', displayName: 'Arjun Menon', bio: 'Full-stack dev. #buildinpublic ☕', profileImage: 'https://api.dicebear.com/7.x/avataaars/svg?seed=arjun&backgroundColor=b6e3f4', followersCount: 1843 },
-  { uid: 'demo_user_priya_design', username: 'priya.pixels', displayName: 'Priya Nair', bio: 'UI/UX Designer. #design #figma', profileImage: 'https://api.dicebear.com/7.x/avataaars/svg?seed=priya&backgroundColor=ffdfbf', followersCount: 3210 },
-  { uid: 'demo_user_zaid_photo', username: 'zaidframes', displayName: 'Zaid Rahman', bio: 'Street photographer. #photography #kochi', profileImage: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zaid&backgroundColor=c0aede', followersCount: 5670 },
+  { uid: 'u1', username: 'alex_travels', displayName: 'Alex Rivera', bio: 'Digital Nomad. 🌍 #travel #adventure', img: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&q=80' },
+  { uid: 'u2', username: 'sarah_codes', displayName: 'Sarah Chen', bio: 'Building the future. #coding #tech #100DaysOfCode', img: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&q=80' },
+  { uid: 'u3', username: 'mike_fitness', displayName: 'Mike Ross', bio: 'Fitness & Health Coach. #fitness #gymlife #wellness', img: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400&q=80' }
 ];
 
-// High-quality Unsplash source URLs that rarely fail
-const IMAGE_SOURCES = [
-  'https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&q=80&w=800',
-  'https://images.unsplash.com/photo-1517694712202-14dd9538aa97?auto=format&fit=crop&q=80&w=800',
-  'https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&q=80&w=800',
-  'https://images.unsplash.com/photo-1542744094-3a31f272c490?auto=format&fit=crop&q=80&w=800',
-  'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&q=80&w=800'
+const SEED_DATA = [
+  {
+    persona: PERSONAS[0],
+    text: "Just arrived in Bali! The view is incredible. 🌴 #travel #bali #vacation",
+    img: "https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=800&q=80",
+    likes: 134,
+    comments: [
+      { user: "Sarah Chen", text: "So jealous! Enjoy!" },
+      { user: "Mike Ross", text: "Lookin shredded, bro." }
+    ]
+  },
+  {
+    persona: PERSONAS[1],
+    text: "Finally fixed that production bug! 💻✨ #coding #software #techlife",
+    img: "https://images.unsplash.com/photo-1498050108023-c5249f4df085?w=800&q=80",
+    likes: 567,
+    comments: [{ user: "Alex Rivera", text: "The relief is real!" }]
+  }
 ];
-
-const POSTS: Record<string, { text: string; mood?: { emoji: string; label: string }; hasImage?: boolean }[]> = {
-  demo_user_arjun_dev: [
-    { text: "Just shipped a massive update to the core engine! 🚀 #coding #buildinpublic #webdev", mood: { emoji: '🚀', label: 'Productive' }, hasImage: true },
-    { text: "Does anyone else get stuck in CSS hell for hours? #webdev #frontend", mood: { emoji: '😤', label: 'Frustrated' } },
-  ],
-  demo_user_priya_design: [
-    { text: "Figma components are a lifesaver. #uiux #design #figma", hasImage: true },
-    { text: "Finally finished the color palette for the new project. #design #branding", mood: { emoji: '✨', label: 'Feeling cute' } },
-  ],
-  demo_user_zaid_photo: [
-    { text: "Kochi streets always offer the best light. #photography #streetphoto", hasImage: true },
-    { text: "Woke up at 5am for this shot. Worth it? #photography #goldenhour", hasImage: true },
-  ]
-};
-
-const rand = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
 
 export const useDemoSeed = () => {
   const { firebaseUser } = useAuth();
@@ -42,40 +36,52 @@ export const useDemoSeed = () => {
     if (!firebaseUser) return;
 
     const seed = async () => {
-      const sentinelRef = doc(db, 'meta', 'demoSeed');
-      const sentinelSnap = await getDoc(sentinelRef);
-      if (sentinelSnap.exists()) return;
+      const sentinelRef = doc(db, 'meta', 'demoSeedV2');
+      const snap = await getDoc(sentinelRef);
+      if (snap.exists()) return;
 
       const batch = writeBatch(db);
-      const postsRef = collection(db, 'posts');
 
-      // Create Posts (Increased volume: repeat our list 5 times)
-      for (let i = 0; i < 5; i++) {
-        for (const persona of PERSONAS) {
-          const userPosts = POSTS[persona.uid] || [];
-          for (const post of userPosts) {
-            const docRef = doc(postsRef);
-            batch.set(docRef, {
-              userId: persona.uid,
-              username: persona.username,
-              userProfileImage: persona.profileImage,
-              text: post.text,
-              mediaUrls: post.hasImage ? [IMAGE_SOURCES[rand(0, IMAGE_SOURCES.length - 1)]] : [],
-              type: post.hasImage ? 'image' : 'text',
-              mood: post.mood || null,
-              likesCount: rand(50, 500),
-              commentsCount: rand(5, 50),
-              sharesCount: rand(0, 20),
-              isDemo: true,
-              createdAt: new Date(Date.now() - rand(0, 1000000000)).toISOString()
-            });
-          }
+      // 1. Create Users
+      for (const p of PERSONAS) {
+        batch.set(doc(db, 'users', p.uid), {
+          uid: p.uid, username: p.username, displayName: p.displayName, bio: p.bio,
+          profileImage: p.img, followersCount: 0, followingCount: 0, postsCount: 0, createdAt: new Date().toISOString()
+        });
+      }
+
+      // 2. Create Posts + Comments
+      for (const item of SEED_DATA) {
+        const postRef = doc(collection(db, 'posts'));
+        batch.set(postRef, {
+          userId: item.persona.uid,
+          username: item.persona.username,
+          userProfileImage: item.persona.img,
+          text: item.text,
+          mediaUrls: [item.img],
+          type: 'image',
+          likesCount: item.likes,
+          commentsCount: item.comments.length,
+          createdAt: new Date().toISOString(),
+          isDemo: true
+        });
+
+        // 3. Add Comments as Subcollections
+        for (const c of item.comments) {
+          const commentRef = doc(collection(db, 'posts', postRef.id, 'comments'));
+          batch.set(commentRef, {
+            postId: postRef.id,
+            userId: 'random_user',
+            username: c.user.split(' ')[0].toLowerCase(),
+            text: c.text,
+            createdAt: new Date().toISOString()
+          });
         }
       }
 
       await batch.commit();
       await setDoc(sentinelRef, { seeded: true });
-      console.log('Demo content seeded successfully with hashtags!');
+      console.log('Seed Complete: Realistic photos + Hashtags + Matching Comments.');
     };
 
     seed();
