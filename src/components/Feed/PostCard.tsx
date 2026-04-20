@@ -46,7 +46,7 @@ const setCache = (key: string, value: boolean) => {
 };
 
 // ----------------------------------------------------------------------------
-// 3. SLIDE-UP SHARE SHEET
+// 3. SHARE SHEET
 // ----------------------------------------------------------------------------
 const ShareSheet: React.FC<{ post: Post; onClose: () => void }> = ({ post, onClose }) => {
   const { user } = useAuth();
@@ -269,13 +269,14 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
   const [isSaved, setIsSaved] = useState(false);
   const [localLikesCount, setLocalLikesCount] = useState(post.likesCount || 0);
 
-  // 1. Initial Fetch logic
+  // Initial Fetch logic
   useEffect(() => {
     isMounted.current = true;
     if (!user?.uid || !post.id) return;
 
     const likeKey = `${user.uid}:${post.id}:like`;
     
+    // For 'Saved', we read directly from the post prop to avoid permission denied errors
     setIsSaved((post.savedBy ?? []).includes(user.uid));
 
     const fetchInteractions = async () => {
@@ -301,14 +302,14 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
     return () => { isMounted.current = false; };
   }, [user?.uid, post.id, post.savedBy]);
 
-  // 2. Sync server likesCount safely
+  // Sync server likesCount safely
   useEffect(() => {
     if (!syncLock.current && isMounted.current) {
       setLocalLikesCount(post.likesCount || 0);
     }
   }, [post.likesCount]);
 
-  // 3. Click-away listener for Menu
+  // Click-away listener for Menu
   useEffect(() => {
     if (!showMenu) return;
     const handleOutsideClick = (e: MouseEvent) => {
@@ -398,16 +399,57 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
     }
   }, [isDeleting, post.id]);
 
-  // FIX: Immediately opens the custom Share Sheet layout!
   const handleShare = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
-    setShowShareSheet(true); 
+    setShowShareSheet(true); // Always open the custom slide-up Share Sheet
   }, []);
 
   const navigateToPost = () => {
     if (!isDeleting) navigate(`/post/${post.id}`);
   };
 
+  // --- RICH TEXT PARSER (Turns #hashtags and @mentions into colored text) ---
+  const renderFormattedText = (text: string) => {
+    // Regex splits text into an array, keeping the hashtags/mentions intact
+    const parts = text.split(/(#[a-zA-Z0-9_]+|@[a-zA-Z0-9_]+)/g);
+    
+    return parts.map((part, index) => {
+      // Handle Hashtag
+      if (part.match(/^#[a-zA-Z0-9_]+$/)) {
+        return (
+          <span 
+            key={index} 
+            className="text-primary hover:underline cursor-pointer font-medium"
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/explore`); // You can customize this later to filter by tag
+            }}
+          >
+            {part}
+          </span>
+        );
+      }
+      // Handle Mention
+      if (part.match(/^@[a-zA-Z0-9_]+$/)) {
+        return (
+          <span 
+            key={index} 
+            className="text-primary hover:underline cursor-pointer font-medium"
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/profile/${part.slice(1)}`);
+            }}
+          >
+            {part}
+          </span>
+        );
+      }
+      // Return normal text
+      return part;
+    });
+  };
+
+  // Safe Data Parsing
   const parsedDate = post.createdAt?.toDate?.() || new Date(post.createdAt);
   const fallbackAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.username}`;
   const avatarSrc = avatarFailed || !post.userProfileImage ? fallbackAvatar : post.userProfileImage;
@@ -448,6 +490,7 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
         </div>
 
         <div className="flex-1 min-w-0">
+          {/* Header */}
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1 truncate">
               <span 
@@ -503,12 +546,14 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
             </div>
           )}
 
+          {/* Text Content WITH RICH TEXT PARSING */}
           {post.text && (
             <p className="mt-2 text-[15px] leading-relaxed break-words whitespace-pre-wrap text-foreground/90">
-              {post.text}
+              {renderFormattedText(post.text)}
             </p>
           )}
 
+          {/* Media Grid */}
           {post.mediaUrls?.length > 0 && (
             <div className={cn(
               "mt-3 rounded-2xl overflow-hidden border border-border grid gap-0.5 bg-accent/20",
@@ -573,7 +618,7 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
                 <MessageCircle className="w-5 h-5 transition-transform duration-150 group-active:scale-95" />
               </div>
               <span className="text-xs font-medium tabular-nums min-w-[2ch]">
-                {post.commentsCount || 0}
+                {post.commentsCount > 0 ? post.commentsCount : ''}
               </span>
             </button>
 
