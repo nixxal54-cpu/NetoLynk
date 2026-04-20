@@ -28,6 +28,37 @@ export const onLikeWrite = functions.firestore.onDocumentWritten(
   }
 );
 
+export const onPostCreatedNotification = functions.firestore.onDocumentCreated(
+  "posts/{postId}",
+  async (event) => {
+    const postData = event.data?.data();
+    if (!postData) return;
+
+    // 1. Get the list of followers for the person who posted
+    const userId = postData.userId;
+    const followersSnap = await db.collection(`users/${userId}/followers`).get();
+
+    // 2. Prepare notifications for all followers
+    const batch = db.batch();
+    followersSnap.docs.forEach((doc) => {
+      const followerId = doc.id;
+      const notifRef = db.collection("notifications").doc();
+      batch.set(notifRef, {
+        recipientId: followerId,
+        senderId: userId,
+        senderUsername: postData.username,
+        senderProfileImage: postData.userProfileImage || '',
+        type: 'message', // You can add 'post' as a type in your UI later
+        text: `${postData.username} just shared a new post!`,
+        postId: event.params.postId,
+        read: false,
+        createdAt: new Date().toISOString()
+      });
+    });
+
+    await batch.commit();
+  }
+);
 /**
  * Recalculates followersCount on a user whenever a document is written to
  * users/{userId}/followers/{followerId}.
