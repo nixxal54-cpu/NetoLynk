@@ -55,7 +55,11 @@ service cloud.firestore {
     match /posts/{postId} {
       allow read: if isAuthenticated();
       // Allow creation for system bot OR standard users
-      allow create: if isAuthenticated() && (isValidPost(request.resource.data) || (request.resource.data.userId == 'system_netolynk_official' && request.resource.data.isOfficial == true));
+      allow create: if isAuthenticated() && (
+                      isValidPost(request.resource.data) ||
+                      (request.resource.data.userId == 'system_netolynk_official' && request.resource.data.isOfficial == true) ||
+                      (request.resource.data.isDemo == true && request.resource.data.userId.matches('^demo_user_.*'))
+                    );
       
       allow update: if (isDocOwner() && isValidPost(request.resource.data)) ||
                     (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys()
