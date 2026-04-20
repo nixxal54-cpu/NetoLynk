@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { collection, query, where, orderBy, limit, getDocs, writeBatch, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, getDocs, writeBatch, doc, getDoc, setDoc } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 
 const BOT_UID = "system_netolynk_official"; // MUST match your Firestore Rules
