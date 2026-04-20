@@ -2,47 +2,111 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ===============================================================
+    // Helper Functions (Kept exactly as you had them)
+    // ===============================================================
+
     function isAuthenticated() { return request.auth != null; }
     function isOwner(userId) { return isAuthenticated() && request.auth.uid == userId; }
     function isDocOwner() { return isAuthenticated() && request.auth.uid == resource.data.userId; }
+    
+    function isValidEmail(email) { return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"); }
+    function isValidUrl(url) { return url == null || (url is string && (url.matches("^https://.*") || url.matches("^http://.*"))); }
+    function isValidTimestamp(ts) { return ts is timestamp || (ts is string && ts.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$")); }
+
+    function isAdmin() { return isAuthenticated() && request.auth.token.role == 'admin'; }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return data.uid == request.auth.uid &&
+             data.username is string && data.username.size() >= 3 && data.username.size() <= 30 &&
+             data.displayName is string && data.displayName.size() > 0 && data.displayName.size() <= 50 &&
+             isValidEmail(data.email) &&
+             (data.bio == null || (data.bio is string && data.bio.size() <= 160)) &&
+             isValidUrl(data.profileImage) &&
+             isValidUrl(data.coverImage);
+    }
+
+    function isValidPost(data) {
+      return data.userId == request.auth.uid &&
+             data.username is string &&
+             (data.text == null || (data.text is string && data.text.size() <= 2200)) &&
+             data.mediaUrls is list && data.mediaUrls.size() <= 10 &&
+             data.type in ['text', 'image', 'video'];
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
 
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow create: if isOwner(userId);
-      allow update: if isOwner(userId) || (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['followers', 'following']));
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if (isOwner(userId) && isValidUser(request.resource.data) &&
+                    request.resource.data.uid == resource.data.uid &&
+                    request.resource.data.createdAt == resource.data.createdAt) ||
+                    (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys()
+                      .hasOnly(['followers', 'following']));
     }
 
     match /posts/{postId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
-      allow update: if isDocOwner() || (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likedBy', 'savedBy', 'sharesCount']));
-      allow delete: if isDocOwner();
+      // Allow creation for system bot OR standard users
+      allow create: if isAuthenticated() && (isValidPost(request.resource.data) || (request.resource.data.userId == 'system_netolynk_official' && request.resource.data.isOfficial == true));
       
+      allow update: if (isDocOwner() && isValidPost(request.resource.data)) ||
+                    (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys()
+                      .hasOnly(['likedBy', 'savedBy', 'sharesCount']));
+      allow delete: if isDocOwner();
+
       match /comments/{commentId} {
         allow read: if isAuthenticated();
-        allow create: if isAuthenticated();
+        allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
         allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || get(/databases/$(database)/documents/posts/$(postId)).data.userId == request.auth.uid);
       }
+
       match /likes/{userId} {
         allow read: if isAuthenticated();
         allow write: if isOwner(userId);
       }
     }
 
-    match /notifications/{notificationId} {
-      // Allows reading if the recipient is the current user OR if it's a global notification
-      allow read: if isAuthenticated() && (resource.data.recipientId == request.auth.uid || resource.data.recipientId == 'all');
-      // Allow creation for cloud functions (admin) and users (if recipientId matches their auth.uid)
-      allow create: if isAuthenticated(); 
-      allow update: if isAuthenticated() && resource.data.recipientId == request.auth.uid;
-      allow delete: if isAuthenticated() && resource.data.recipientId == request.auth.uid;
+    match /users/{userId}/followers/{followerId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(followerId);
+    }
+
+    match /users/{userId}/following/{followingId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId);
     }
 
     match /chats/{chatId} {
-      allow read, write: if isAuthenticated() && request.auth.uid in resource.data.participants;
+      allow read: if isAuthenticated() && request.auth.uid in resource.data.participants;
+      allow create: if isAuthenticated() && request.auth.uid in request.resource.data.participants;
+      allow update: if isAuthenticated() && request.auth.uid in resource.data.participants;
+
       match /messages/{messageId} {
-        allow read, write: if isAuthenticated();
+        allow read: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+        allow create: if isAuthenticated() && request.resource.data.senderId == request.auth.uid;
       }
+    }
+
+    // --- FIXED NOTIFICATION RULE ---
+    match /notifications/{notificationId} {
+      // Users can read their own, or global system notifications
+      allow read: if isAuthenticated() && (resource.data.recipientId == request.auth.uid || resource.data.recipientId == 'all');
+      
+      // Allow Cloud Functions (admin) to create. Allow users to create via the app.
+      allow create: if isAuthenticated();
+      
+      // Standard update/delete for the recipient
+      allow update: if isAuthenticated() && resource.data.recipientId == request.auth.uid && 
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow delete: if isAuthenticated() && resource.data.recipientId == request.auth.uid;
     }
   }
 }
