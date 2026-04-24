@@ -80,9 +80,19 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onBack }) => {
   const checkUsername = useCallback(async (username: string) => {
     if (username.length < 3) { setUsernameStatus('idle'); return; }
     setUsernameStatus('checking');
-    const q = query(collection(db, 'users'), where('username', '==', username), limit(1));
-    const snap = await getDocs(q);
-    setUsernameStatus(snap.empty ? 'available' : 'taken');
+    try {
+      // Always check lowercase since usernames are stored lowercase
+      const normalised = username.toLowerCase().replace(/\s/g, '');
+      const q = query(collection(db, 'users'), where('username', '==', normalised), limit(1));
+      const snap = await getDocs(q);
+      setUsernameStatus(snap.empty ? 'available' : 'taken');
+    } catch (err) {
+      // If Firestore check fails (network issue, index missing, etc.)
+      // don't block the user — mark as available and let the server
+      // reject on final account creation if truly taken.
+      console.warn('Username check failed, assuming available:', err);
+      setUsernameStatus('available');
+    }
   }, []);
 
   // Returns true if the user is at least 13 years old
@@ -178,7 +188,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onBack }) => {
       case 1: return data.password.length >= 6;
       case 2: return ageIsValid();
       case 4: return data.name.trim().length >= 2;
-      case 5: return data.username.trim().length >= 3 && usernameStatus === 'available';
+      case 5: return data.username.trim().length >= 3 && (usernameStatus === 'available' || usernameStatus === 'checking');
       default: return true;
     }
   };
@@ -456,7 +466,23 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onBack }) => {
                 )}
               </div>
               <div className="flex-1" />
-              <button onClick={goNext} disabled={!canProceed()} className={btnPrimary}>Next</button>
+              <button
+                onClick={async () => {
+                  if (usernameStatus === 'checking') {
+                    // Wait for the in-flight debounce to finish
+                    await checkUsername(data.username);
+                  }
+                  if (usernameStatus !== 'taken') goNext();
+                }}
+                disabled={data.username.trim().length < 3 || usernameStatus === 'taken'}
+                className={btnPrimary}
+              >
+                {usernameStatus === 'checking' ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" /> Checking…
+                  </span>
+                ) : 'Next'}
+              </button>
             </div>
           )}
 
