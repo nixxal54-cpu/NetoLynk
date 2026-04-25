@@ -37,7 +37,7 @@ STRICT OUTPUT RULES — follow exactly:
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 // mixtral-8x7b-32768 — best free model for instruction following
-const GROQ_MODEL = 'mixtral-8x7b-32768';
+const GROQ_MODEL = 'groq/compound';
 
 function generateSuggestions(userText: string, aiResponse: string): string[] {
   const t = (userText + ' ' + aiResponse).toLowerCase();
