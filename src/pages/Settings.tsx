@@ -2,7 +2,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronLeft, Bell, Lock, Shield, Moon, Globe, HelpCircle, LogOut } from 'lucide-react';
+import { ChevronLeft, Bell, Lock, Shield, Moon, Globe, HelpCircle, LogOut, Star } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { auth } from '../lib/firebase';
 import { sendPasswordResetEmail } from 'firebase/auth';
@@ -37,20 +37,22 @@ export const Settings: React.FC = () => {
     if (label === 'Notifications') {
       navigate('/notifications');
     } else if (label === 'Help & Support') {
-      // Navigate to the dedicated support page
       navigate('/support');
+    } else if (label === 'NetoLynk Reviews') {
+      navigate('/reviews');
     } else {
       setActiveView(label);
     }
   };
 
   const settingsOptions = [
-    { icon: Bell,        label: 'Notifications', description: 'Manage your alerts' },
-    { icon: Lock,        label: 'Privacy',        description: 'Control who sees your content' },
-    { icon: Shield,      label: 'Security',       description: 'Password and authentication' },
-    { icon: Moon,        label: 'Display',        description: 'Theme and appearance' },
-    { icon: Globe,       label: 'Language',       description: 'App language preferences' },
-    { icon: HelpCircle,  label: 'Help & Support', description: 'Report bugs · request features · send feedback' },
+    { icon: Bell,        label: 'Notifications',    description: 'Manage your alerts' },
+    { icon: Lock,        label: 'Privacy',           description: 'Control who sees your content' },
+    { icon: Shield,      label: 'Security',          description: 'Password and authentication' },
+    { icon: Moon,        label: 'Display',           description: 'Theme and appearance' },
+    { icon: Globe,       label: 'Language',          description: 'App language preferences' },
+    { icon: HelpCircle,  label: 'Help & Support',    description: 'Report bugs · request features · send feedback' },
+    { icon: Star,        label: 'NetoLynk Reviews',  description: 'See what users are saying about NetoLynk' },
   ];
 
   const renderSubView = () => {
@@ -103,7 +105,7 @@ export const Settings: React.FC = () => {
       <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-md border-b border-border p-4 flex items-center gap-4">
         <button
           onClick={() => activeView ? setActiveView(null) : navigate(-1)}
-          className="p-2 hover:bg-accent rounded-full"
+          className="p-2 hover:bg-accent rounded-full transition-colors"
         >
           <ChevronLeft className="w-6 h-6" />
         </button>
@@ -112,21 +114,13 @@ export const Settings: React.FC = () => {
 
       <AnimatePresence mode="wait">
         {activeView ? (
-          <motion.div
-            key="subview"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-          >
+          <motion.div key="subview"
+            initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
             {renderSubView()}
           </motion.div>
         ) : (
-          <motion.div
-            key="main"
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="p-4"
-          >
+          <motion.div key="main"
+            initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="p-4">
             <div className="space-y-2">
               {settingsOptions.map((option, index) => (
                 <button
@@ -139,6 +133,7 @@ export const Settings: React.FC = () => {
                     <h4 className="font-medium">{option.label}</h4>
                     <p className="text-sm text-muted-foreground">{option.description}</p>
                   </div>
+                  <ChevronLeft className="w-4 h-4 text-muted-foreground/50 ml-auto rotate-180" />
                 </button>
               ))}
 
