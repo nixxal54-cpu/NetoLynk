@@ -3,7 +3,7 @@ import imageCompression from 'browser-image-compression';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { httpsCallable } from 'firebase/functions';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { NetoAIChat } from '../components/AI/NetoAIChat';
 import { useAuth } from '../context/AuthContext';
 import { useCollection } from '../hooks/useFirestore';
 import { Chat, Message, User } from '../types';
@@ -411,6 +411,7 @@ export const Messages: React.FC = () => {
   const navigate = useNavigate();
 
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
+  const [showNetoAI, setShowNetoAI] = useState(false);
   const [chatPartner, setChatPartner] = useState<User | null>(null);
   const [messageText, setMessageText] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -604,7 +605,7 @@ export const Messages: React.FC = () => {
 
       <div className="flex-1 flex h-[100dvh] overflow-hidden border-x border-border pb-[68px] md:pb-0">
         {/* Chat List */}
-        <div className={cn('w-full md:w-80 border-r border-border flex flex-col bg-background', selectedChat ? 'hidden md:flex' : 'flex')}>
+        <div className={cn('w-full md:w-80 border-r border-border flex flex-col bg-background', (selectedChat || showNetoAI) ? 'hidden md:flex' : 'flex')}>
           <header className="p-4 border-b border-border flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold">Messages</h2>
@@ -626,6 +627,30 @@ export const Messages: React.FC = () => {
           </header>
 
           <div className="flex-1 overflow-y-auto">
+            {/* Neto AI pinned entry */}
+            {!searchQuery && (
+              <button
+                onClick={() => { setShowNetoAI(true); setSelectedChat(null); }}
+                className={cn(
+                  'w-full p-4 flex gap-3 hover:bg-accent transition-colors text-left border-b border-border/40',
+                  showNetoAI && 'bg-accent'
+                )}
+              >
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-red-700 via-red-900 to-zinc-900 flex items-center justify-center flex-shrink-0 shadow-lg shadow-red-900/30">
+                  <svg className="w-6 h-6 text-red-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z" />
+                  </svg>
+                </div>
+                <div className="flex-1 min-w-0 flex flex-col justify-center">
+                  <div className="flex justify-between items-baseline gap-2">
+                    <p className="font-bold truncate">Neto AI</p>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-900/30 text-red-400 border border-red-800/30 font-medium flex-shrink-0">AI</span>
+                  </div>
+                  <p className="text-sm truncate text-muted-foreground">Your intelligent NetoLynk assistant</p>
+                </div>
+              </button>
+            )}
             {chatsLoading ? (
               <div className="flex justify-center p-8"><Loader2 className="animate-spin text-primary" /></div>
             ) : filteredChats.length > 0 ? (
@@ -636,7 +661,7 @@ export const Messages: React.FC = () => {
                 const profileImage = details?.profileImage || `https://api.dicebear.com/7.x/avataaars/svg?seed=${partnerId}`;
                 const unread = (chat as any).unreadCount?.[user?.uid ?? ''] ?? 0;
                 return (
-                  <button key={chat.id} onClick={() => setSelectedChat(chat)} className={cn('w-full p-4 flex gap-3 hover:bg-accent transition-colors text-left', selectedChat?.id === chat.id && 'bg-accent')}>
+                  <button key={chat.id} onClick={() => { setSelectedChat(chat); setShowNetoAI(false); }} className={cn('w-full p-4 flex gap-3 hover:bg-accent transition-colors text-left', selectedChat?.id === chat.id && 'bg-accent')}>
                     <img src={profileImage} alt="Chat" className="w-12 h-12 rounded-full object-cover flex-shrink-0" />
                     <div className="flex-1 min-w-0 flex flex-col justify-center">
                       <div className="flex justify-between items-baseline gap-2">
@@ -660,8 +685,10 @@ export const Messages: React.FC = () => {
         </div>
 
         {/* Chat Window */}
-        <div className={cn('flex-1 flex flex-col bg-background', !selectedChat ? 'hidden md:flex items-center justify-center p-8 text-center' : 'flex')}>
-          {!selectedChat ? (
+        <div className={cn('flex-1 flex flex-col bg-background', !selectedChat && !showNetoAI ? 'hidden md:flex items-center justify-center p-8 text-center' : 'flex')}>
+          {showNetoAI ? (
+            <NetoAIChat />
+          ) : !selectedChat ? (
             <div className="max-w-xs">
               <h3 className="text-2xl font-bold mb-2">Your messages</h3>
               <p className="text-muted-foreground">Select a conversation or message a user to get started.</p>
@@ -670,7 +697,7 @@ export const Messages: React.FC = () => {
             <>
               <header className="p-4 border-b border-border flex items-center justify-between bg-background/80 backdrop-blur-[10px]">
                 <div className="flex items-center gap-3">
-                  <button onClick={() => setSelectedChat(null)} className="md:hidden p-2 hover:bg-accent rounded-full">
+                  <button onClick={() => { setSelectedChat(null); setShowNetoAI(false); }} className="md:hidden p-2 hover:bg-accent rounded-full">
                     <ChevronLeft className="w-6 h-6" />
                   </button>
                   <div className="relative cursor-pointer" onClick={() => navigate(`/profile/${chatPartner?.username}`)}>
