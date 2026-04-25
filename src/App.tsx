@@ -17,6 +17,7 @@ import { EditProfilePage } from './pages/EditProfilePage';
 import { PostDetails } from './pages/PostDetails';
 import { Settings } from './pages/Settings';
 import { Activity } from './pages/Activity';
+import { SupportPage } from './pages/SupportPage';
 import { Loader2 } from 'lucide-react';
 import { useNetolynkSystem } from './hooks/useNetolynkSystem';
 import { useDemoSeed } from './hooks/useDemoSeed';
@@ -24,7 +25,7 @@ import { usePushNotifications } from './hooks/usePushNotifications';
 
 const AppContent: React.FC = () => {
   const { firebaseUser, loading } = useAuth();
-  
+
   useNetolynkSystem();
   useDemoSeed();
   usePushNotifications();
@@ -53,19 +54,21 @@ const AppContent: React.FC = () => {
       <Sidebar />
       <main className="flex-1 flex flex-col min-w-0">
         <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/explore" element={<Explore />} />
-          <Route path="/notifications" element={<Notifications />} />
-          <Route path="/messages" element={<Messages />} />
+          <Route path="/"                  element={<Home />} />
+          <Route path="/explore"           element={<Explore />} />
+          <Route path="/notifications"     element={<Notifications />} />
+          <Route path="/messages"          element={<Messages />} />
           <Route path="/profile/:username" element={<Profile />} />
-          <Route path="/post/:id" element={<PostDetails />} />
-          <Route path="/create" element={<CreatePostPage />} />
-          <Route path="/edit-profile" element={<EditProfilePage />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/activity" element={<Activity />} />
-          <Route path="*" element={<Navigate to="/" />} />
+          <Route path="/post/:id"          element={<PostDetails />} />
+          <Route path="/create"            element={<CreatePostPage />} />
+          <Route path="/edit-profile"      element={<EditProfilePage />} />
+          <Route path="/settings"          element={<Settings />} />
+          <Route path="/activity"          element={<Activity />} />
+          <Route path="/support"           element={<SupportPage />} />
+          <Route path="*"                  element={<Navigate to="/" />} />
         </Routes>
       </main>
+
       <div className="hidden lg:block w-80 p-4 sticky top-0 h-screen overflow-y-auto border-l border-border flex-shrink-0">
         <div className="bg-accent/30 rounded-2xl p-4 mb-4">
           <h3 className="font-bold text-lg mb-2">What's happening</h3>
