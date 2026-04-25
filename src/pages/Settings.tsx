@@ -2,7 +2,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronLeft, Bell, Lock, Shield, Moon, Globe, HelpCircle, LogOut, ExternalLink } from 'lucide-react';
+import { ChevronLeft, Bell, Lock, Shield, Moon, Globe, HelpCircle, LogOut } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { auth } from '../lib/firebase';
 import { sendPasswordResetEmail } from 'firebase/auth';
@@ -19,7 +19,7 @@ export const Settings: React.FC = () => {
       await auth.signOut();
       navigate('/login');
     } catch (error) {
-      console.error("Error signing out:", error);
+      console.error('Error signing out:', error);
     }
   };
 
@@ -36,18 +36,21 @@ export const Settings: React.FC = () => {
   const handleOptionClick = (label: string) => {
     if (label === 'Notifications') {
       navigate('/notifications');
+    } else if (label === 'Help & Support') {
+      // Navigate to the dedicated support page
+      navigate('/support');
     } else {
       setActiveView(label);
     }
   };
 
   const settingsOptions = [
-    { icon: Bell, label: 'Notifications', description: 'Manage your alerts' },
-    { icon: Lock, label: 'Privacy', description: 'Control who sees your content' },
-    { icon: Shield, label: 'Security', description: 'Password and authentication' },
-    { icon: Moon, label: 'Display', description: 'Theme and appearance' },
-    { icon: Globe, label: 'Language', description: 'App language preferences' },
-    { icon: HelpCircle, label: 'Help & Support', description: 'Get assistance' },
+    { icon: Bell,        label: 'Notifications', description: 'Manage your alerts' },
+    { icon: Lock,        label: 'Privacy',        description: 'Control who sees your content' },
+    { icon: Shield,      label: 'Security',       description: 'Password and authentication' },
+    { icon: Moon,        label: 'Display',        description: 'Theme and appearance' },
+    { icon: Globe,       label: 'Language',       description: 'App language preferences' },
+    { icon: HelpCircle,  label: 'Help & Support', description: 'Report bugs · request features · send feedback' },
   ];
 
   const renderSubView = () => {
@@ -69,7 +72,10 @@ export const Settings: React.FC = () => {
         return (
           <div className="p-4 space-y-4">
             <h3 className="font-bold text-lg mb-4">Security</h3>
-            <button onClick={handlePasswordReset} className="w-full p-4 bg-accent/20 rounded-2xl text-left hover:bg-accent/40 transition-colors">
+            <button
+              onClick={handlePasswordReset}
+              className="w-full p-4 bg-accent/20 rounded-2xl text-left hover:bg-accent/40 transition-colors"
+            >
               <p className="font-medium">Change Password</p>
               <p className="text-sm text-muted-foreground">Send reset link to email</p>
             </button>
@@ -88,14 +94,17 @@ export const Settings: React.FC = () => {
   };
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -20 }}
       className="flex-1 max-w-2xl border-x border-border min-h-screen bg-background pb-40 overflow-y-auto"
     >
       <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-md border-b border-border p-4 flex items-center gap-4">
-        <button onClick={() => activeView ? setActiveView(null) : navigate(-1)} className="p-2 hover:bg-accent rounded-full">
+        <button
+          onClick={() => activeView ? setActiveView(null) : navigate(-1)}
+          className="p-2 hover:bg-accent rounded-full"
+        >
           <ChevronLeft className="w-6 h-6" />
         </button>
         <h2 className="text-xl font-bold">{activeView || 'Settings'}</h2>
@@ -103,22 +112,40 @@ export const Settings: React.FC = () => {
 
       <AnimatePresence mode="wait">
         {activeView ? (
-          <motion.div key="subview" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+          <motion.div
+            key="subview"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+          >
             {renderSubView()}
           </motion.div>
         ) : (
-          <motion.div key="main" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="p-4">
+          <motion.div
+            key="main"
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="p-4"
+          >
             <div className="space-y-2">
               {settingsOptions.map((option, index) => (
-                <button key={index} onClick={() => handleOptionClick(option.label)} className="w-full flex items-center gap-4 p-4 hover:bg-accent/50 rounded-2xl text-left">
-                  <option.icon className="w-5 h-5 text-primary" />
+                <button
+                  key={index}
+                  onClick={() => handleOptionClick(option.label)}
+                  className="w-full flex items-center gap-4 p-4 hover:bg-accent/50 rounded-2xl text-left transition-colors"
+                >
+                  <option.icon className="w-5 h-5 text-primary shrink-0" />
                   <div>
                     <h4 className="font-medium">{option.label}</h4>
                     <p className="text-sm text-muted-foreground">{option.description}</p>
                   </div>
                 </button>
               ))}
-              <button onClick={handleLogout} className="w-full flex items-center gap-4 p-4 hover:bg-destructive/10 rounded-2xl text-left mt-8 text-destructive">
+
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center gap-4 p-4 hover:bg-destructive/10 rounded-2xl text-left mt-8 text-destructive transition-colors"
+              >
                 <LogOut className="w-5 h-5" />
                 <h4 className="font-medium">Log Out</h4>
               </button>
