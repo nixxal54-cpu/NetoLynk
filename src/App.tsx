@@ -18,6 +18,7 @@ import { PostDetails } from './pages/PostDetails';
 import { Settings } from './pages/Settings';
 import { Activity } from './pages/Activity';
 import { SupportPage } from './pages/SupportPage';
+import { ReviewsPage } from './pages/ReviewsPage';
 import { Loader2 } from 'lucide-react';
 import { useNetolynkSystem } from './hooks/useNetolynkSystem';
 import { useDemoSeed } from './hooks/useDemoSeed';
@@ -65,6 +66,7 @@ const AppContent: React.FC = () => {
           <Route path="/settings"          element={<Settings />} />
           <Route path="/activity"          element={<Activity />} />
           <Route path="/support"           element={<SupportPage />} />
+          <Route path="/reviews"           element={<ReviewsPage />} />
           <Route path="*"                  element={<Navigate to="/" />} />
         </Routes>
       </main>
