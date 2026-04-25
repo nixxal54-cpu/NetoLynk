@@ -12,10 +12,10 @@ import { db } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 // ─── EmailJS config ─────────────────────────────────────────────────────────
-const EMAILJS_SERVICE_ID  = 'YOUR_SERVICE_ID';
-const EMAILJS_TEMPLATE_ID = 'YOUR_TEMPLATE_ID';
-const EMAILJS_PUBLIC_KEY  = 'YOUR_PUBLIC_KEY';
-// ────────────────────────────────────────────────────────────────────────────
+const EMAILJS_SERVICE_ID  = 'service_unc0m3d';
+const EMAILJS_TEMPLATE_ID = 'template_h4xia97';
+const EMAILJS_PUBLIC_KEY  = 'qOfd-eAdWpnVD2AAj';
+// ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 type Category = 'bug' | 'feature' | 'general';
 type Step = 'form' | 'quality' | 'review' | 'done';
