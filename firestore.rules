@@ -3,13 +3,13 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ===============================================================
-    // Helper Functions (Kept exactly as you had them)
+    // Helper Functions
     // ===============================================================
 
     function isAuthenticated() { return request.auth != null; }
     function isOwner(userId) { return isAuthenticated() && request.auth.uid == userId; }
     function isDocOwner() { return isAuthenticated() && request.auth.uid == resource.data.userId; }
-    
+
     function isValidEmail(email) { return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"); }
     function isValidUrl(url) { return url == null || (url is string && (url.matches("^https://.*") || url.matches("^http://.*"))); }
     function isValidTimestamp(ts) { return ts is timestamp || (ts is string && ts.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$")); }
@@ -38,6 +38,15 @@ service cloud.firestore {
              data.type in ['text', 'image', 'video'];
     }
 
+    function isValidReview(data) {
+      return data.keys().hasAll(['uid', 'name', 'username', 'stars', 'createdAt']) &&
+             data.uid == request.auth.uid &&
+             data.name is string && data.name.size() >= 2 && data.name.size() <= 100 &&
+             data.username is string && data.username.size() >= 1 &&
+             data.stars is int && data.stars >= 1 && data.stars <= 5 &&
+             (data.reviewText == null || (data.reviewText is string && data.reviewText.size() <= 1000));
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -54,13 +63,11 @@ service cloud.firestore {
 
     match /posts/{postId} {
       allow read: if isAuthenticated();
-      // Allow creation for system bot OR standard users
       allow create: if isAuthenticated() && (
                       isValidPost(request.resource.data) ||
                       (request.resource.data.userId == 'system_netolynk_official' && request.resource.data.isOfficial == true) ||
                       (request.resource.data.isDemo == true && request.resource.data.userId.matches('^demo_user_.*'))
                     );
-      
       allow update: if (isDocOwner() && isValidPost(request.resource.data)) ||
                     (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys()
                       .hasOnly(['likedBy', 'savedBy', 'sharesCount']));
@@ -69,7 +76,10 @@ service cloud.firestore {
       match /comments/{commentId} {
         allow read: if isAuthenticated();
         allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-        allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || get(/databases/$(database)/documents/posts/$(postId)).data.userId == request.auth.uid);
+        allow delete: if isAuthenticated() && (
+                        resource.data.userId == request.auth.uid ||
+                        get(/databases/$(database)/documents/posts/$(postId)).data.userId == request.auth.uid
+                      );
       }
 
       match /likes/{userId} {
@@ -99,20 +109,34 @@ service cloud.firestore {
       }
     }
 
-    // --- FIXED NOTIFICATION RULE ---
     match /notifications/{notificationId} {
-      // Users can read their own, or global system notifications
-      allow read: if isAuthenticated() && (resource.data.recipientId == request.auth.uid || resource.data.recipientId == 'all');
-      
-      // Allow Cloud Functions (admin) to create. Allow users to create via the app.
+      allow read: if isAuthenticated() && (
+                    resource.data.recipientId == request.auth.uid ||
+                    resource.data.recipientId == 'all'
+                  );
       allow create: if isAuthenticated();
-      
-      // Standard update/delete for the recipient
-      allow update: if isAuthenticated() && resource.data.recipientId == request.auth.uid && 
+      allow update: if isAuthenticated() &&
+                    resource.data.recipientId == request.auth.uid &&
                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
       allow delete: if isAuthenticated() && resource.data.recipientId == request.auth.uid;
     }
-    // --- DEMO SEED SENTINEL ---
+
+    // ── Reviews (public wall — written by users, visible to all) ────────────
+    match /reviews/{reviewId} {
+      // Any logged-in user can read all reviews
+      allow read: if isAuthenticated();
+
+      // Any authenticated user can post a review with valid data
+      allow create: if isAuthenticated() && isValidReview(request.resource.data);
+
+      // Only the author can delete their own review
+      allow delete: if isAuthenticated() && request.auth.uid == resource.data.uid;
+
+      // Reviews are immutable once posted — no edits allowed
+      allow update: if false;
+    }
+
+    // ── Demo seed sentinel ───────────────────────────────────────────────────
     match /meta/{docId} {
       allow read: if isAuthenticated();
       allow write: if isAuthenticated();
