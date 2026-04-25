@@ -1,113 +1,110 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import {
-  Send,
-  Sparkles,
-  StopCircle,
-  Trash2,
-  ChevronDown,
-  Copy,
-  Check,
-  Loader2,
-  Zap,
-} from 'lucide-react';
+import { Send, Sparkles, StopCircle, Trash2, Copy, Check, Zap } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useNetoAI, AIMessage, AICard } from '../../hooks/useNetoAI';
 import { useAuth } from '../../context/AuthContext';
 
-// ── Markdown-lite renderer ─────────────────────────────────────────────────
+// ── Markdown renderer — inline only, no wrapper div ──────────────────────────
 
-function renderMarkdown(text: string): React.ReactNode[] {
-  const lines = text.split('\n');
-  const nodes: React.ReactNode[] = [];
-
-  lines.forEach((line, i) => {
-    // Bold
-    const parts = line.split(/(\*\*[^*]+\*\*)/g).map((part, j) => {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        return <strong key={j} className="font-semibold text-foreground">{part.slice(2, -2)}</strong>;
-      }
-      // Inline code
-      if (part.includes('`')) {
-        return part.split(/(`[^`]+`)/g).map((p, k) => {
-          if (p.startsWith('`') && p.endsWith('`')) {
-            return <code key={k} className="bg-primary/10 text-primary px-1 py-0.5 rounded text-[12px] font-mono">{p.slice(1, -1)}</code>;
-          }
-          return p;
-        });
-      }
-      return part;
-    });
-
-    if (line.startsWith('- ') || line.startsWith('• ')) {
-      nodes.push(
-        <div key={i} className="flex gap-2 items-start">
-          <span className="text-primary mt-0.5 text-xs">▸</span>
-          <span>{parts.map((p, j) => <React.Fragment key={j}>{p}</React.Fragment>)}</span>
-        </div>
+function renderInline(text: string): React.ReactNode {
+  return text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**'))
+      return <strong key={i} className="font-semibold text-white/95">{part.slice(2, -2)}</strong>;
+    if (part.startsWith('`') && part.endsWith('`'))
+      return (
+        <code key={i} className="text-red-300 font-mono text-[0.85em] bg-red-950/40 px-1 rounded">
+          {part.slice(1, -1)}
+        </code>
       );
-    } else if (line.trim() === '') {
-      nodes.push(<div key={i} className="h-1" />);
-    } else {
-      nodes.push(
-        <span key={i}>
-          {parts.map((p, j) => <React.Fragment key={j}>{p}</React.Fragment>)}
-          {i < lines.length - 1 && <br />}
-        </span>
-      );
-    }
+    return <span key={i}>{part}</span>;
   });
-
-  return nodes;
 }
 
-// ── Streaming cursor ──────────────────────────────────────────────────────
+function renderText(text: string): React.ReactNode {
+  const lines = text.split('\n');
+  return lines.map((line, i) => {
+    if (line.startsWith('- ') || line.startsWith('• ')) {
+      return (
+        <div key={i} className="flex gap-2.5 items-baseline my-1">
+          <span className="text-red-500/70 text-xs mt-0.5 flex-shrink-0 select-none">◆</span>
+          <span className="text-white/80 leading-relaxed break-words min-w-0">{renderInline(line.slice(2))}</span>
+        </div>
+      );
+    }
+    if (line.trim() === '') return <div key={i} className="h-2" />;
+    return (
+      <div key={i} className="leading-relaxed break-words text-white/85">
+        {renderInline(line)}
+      </div>
+    );
+  });
+}
 
-const StreamCursor: React.FC = () => (
+// ── Streaming cursor ──────────────────────────────────────────────────────────
+
+const Cursor = () => (
   <span
-    className="inline-block w-0.5 h-4 bg-primary/80 ml-0.5 align-middle animate-pulse"
-    style={{ animationDuration: '0.6s' }}
+    className="inline-block w-[2px] h-[1em] bg-red-400/80 ml-0.5 align-middle rounded-full"
+    style={{ animation: 'blink 0.7s step-end infinite' }}
   />
 );
 
-// ── AI Card ───────────────────────────────────────────────────────────────
+// ── AI Card ───────────────────────────────────────────────────────────────────
 
-const cardStyles: Record<string, string> = {
-  feature: 'bg-blue-500/10 border-blue-500/20 text-blue-400',
-  tip: 'bg-purple-500/10 border-purple-500/20 text-purple-400',
-  stat: 'bg-green-500/10 border-green-500/20 text-green-400',
-  action: 'bg-red-800/20 border-red-700/30 text-red-400',
+const cardAccent: Record<string, { border: string; glow: string; label: string }> = {
+  feature: { border: 'border-blue-500/25',  glow: 'shadow-blue-900/20',  label: 'text-blue-400' },
+  tip:     { border: 'border-violet-500/25', glow: 'shadow-violet-900/20', label: 'text-violet-400' },
+  stat:    { border: 'border-emerald-500/25',glow: 'shadow-emerald-900/20',label: 'text-emerald-400' },
+  action:  { border: 'border-red-700/30',    glow: 'shadow-red-900/20',    label: 'text-red-400' },
 };
 
-const AICardComponent: React.FC<{ card: AICard; onAction?: (action: string) => void }> = ({ card, onAction }) => (
-  <div className={cn('border rounded-xl p-3 flex gap-3 items-start transition-all hover:scale-[1.01]', cardStyles[card.type] || cardStyles.tip)}>
-    <span className="text-xl flex-shrink-0 mt-0.5">{card.emoji}</span>
-    <div className="flex-1 min-w-0">
-      <p className="font-semibold text-sm text-foreground leading-tight">{card.title}</p>
-      <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{card.description}</p>
-      {card.action && (
-        <button
-          onClick={() => onAction?.(card.action!)}
-          className="mt-2 text-xs font-medium px-3 py-1 rounded-full bg-foreground/10 hover:bg-foreground/15 transition-colors text-foreground"
-        >
-          {card.action} →
-        </button>
+const AICardComponent: React.FC<{ card: AICard; onAction?: (a: string) => void; delay: number }> = ({ card, onAction, delay }) => {
+  const style = cardAccent[card.type] || cardAccent.tip;
+  return (
+    <div
+      className={cn(
+        'border rounded-2xl p-3.5 flex gap-3 items-start backdrop-blur-sm',
+        'bg-white/[0.03] hover:bg-white/[0.05] transition-all duration-300',
+        'shadow-lg', style.border, style.glow,
       )}
+      style={{ animationDelay: `${delay}ms`, animation: 'fadeUp 0.4s ease both' }}
+    >
+      <span className="text-xl flex-shrink-0 leading-none mt-0.5">{card.emoji}</span>
+      <div className="flex-1 min-w-0">
+        <p className={cn('text-[11px] font-semibold uppercase tracking-wider mb-1', style.label)}>{card.title}</p>
+        <p className="text-xs text-white/60 leading-relaxed break-words">{card.description}</p>
+        {card.action && (
+          <button
+            onClick={() => onAction?.(card.action!)}
+            className="mt-2 text-xs font-medium text-white/70 hover:text-white border border-white/10 hover:border-white/25 px-3 py-1 rounded-full transition-all"
+          >
+            {card.action} →
+          </button>
+        )}
+      </div>
     </div>
+  );
+};
+
+// ── User message pill ─────────────────────────────────────────────────────────
+
+const UserBubble: React.FC<{ msg: AIMessage; avatar?: string }> = ({ msg, avatar }) => (
+  <div className="flex justify-end gap-2.5 items-end" style={{ animation: 'fadeUp 0.3s ease both' }}>
+    <div className="max-w-[72%] bg-red-600/20 border border-red-500/20 backdrop-blur-sm rounded-2xl rounded-br-md px-4 py-2.5">
+      <p className="text-sm text-white/90 leading-relaxed break-words">{msg.content}</p>
+    </div>
+    {avatar
+      ? <img src={avatar} className="w-7 h-7 rounded-full object-cover flex-shrink-0 ring-1 ring-white/10" alt="" />
+      : <div className="w-7 h-7 rounded-full bg-white/10 flex-shrink-0" />
+    }
   </div>
 );
 
-// ── Message Bubble ─────────────────────────────────────────────────────────
+// ── AI response — text lives ON the background ────────────────────────────────
 
-interface AIBubbleProps {
-  msg: AIMessage;
-  userName?: string;
-  userAvatar?: string;
-  onSuggestionClick: (s: string) => void;
-}
-
-const AIBubble: React.FC<AIBubbleProps> = ({ msg, userName, userAvatar, onSuggestionClick }) => {
+const AIResponse: React.FC<{ msg: AIMessage; onSuggestion: (s: string) => void }> = ({ msg, onSuggestion }) => {
   const [copied, setCopied] = useState(false);
-  const isUser = msg.role === 'user';
+  const isEmpty = !msg.content && msg.isStreaming;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(msg.content);
@@ -116,265 +113,223 @@ const AIBubble: React.FC<AIBubbleProps> = ({ msg, userName, userAvatar, onSugges
   };
 
   return (
-    <div className={cn('flex gap-3 group', isUser ? 'flex-row-reverse' : 'flex-row')}>
-      {/* Avatar */}
+    <div className="flex gap-3 items-start group" style={{ animation: 'fadeUp 0.3s ease both' }}>
+      {/* Neto AI orb — small, floats on the left */}
       <div className="flex-shrink-0 mt-1">
-        {isUser ? (
-          <img
-            src={userAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userName}`}
-            alt={userName}
-            className="w-8 h-8 rounded-full object-cover"
-          />
-        ) : (
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-red-700 via-red-900 to-zinc-900 flex items-center justify-center shadow-lg shadow-red-900/30">
-            <Sparkles className="w-4 h-4 text-red-300" />
-          </div>
-        )}
-      </div>
-
-      {/* Content */}
-      <div className={cn('flex-1 min-w-0 max-w-[85%]', isUser ? 'items-end' : 'items-start', 'flex flex-col gap-2')}>
-        {/* Bubble */}
-        <div
-          className={cn(
-            'relative px-4 py-3 rounded-2xl text-sm leading-relaxed',
-            isUser
-              ? 'bg-primary text-primary-foreground rounded-tr-sm self-end'
-              : 'bg-zinc-900/80 border border-white/5 text-foreground rounded-tl-sm self-start w-full'
-          )}
+        <div className="w-7 h-7 rounded-full flex items-center justify-center relative"
+          style={{
+            background: 'radial-gradient(circle at 35% 35%, #7f1d1d, #3f0000)',
+            boxShadow: '0 0 12px #ef444430',
+          }}
         >
-          {isUser ? (
-            <p>{msg.content}</p>
-          ) : (
-            <div className="space-y-1 text-[13px]">
-              {renderMarkdown(msg.content)}
-              {msg.isStreaming && <StreamCursor />}
-            </div>
-          )}
-
-          {/* Copy button (AI only) */}
-          {!isUser && !msg.isStreaming && msg.content && (
-            <button
-              onClick={handleCopy}
-              className="absolute top-2 right-2 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity bg-white/5 hover:bg-white/10 text-muted-foreground"
-              title="Copy"
-            >
-              {copied ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
-            </button>
+          <Sparkles className="w-3.5 h-3.5 text-red-300" />
+          {msg.isStreaming && (
+            <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-500"
+              style={{ animation: 'pulse 1s ease infinite' }} />
           )}
         </div>
+      </div>
 
-        {/* AI Cards */}
-        {!isUser && msg.cards && msg.cards.length > 0 && !msg.isStreaming && (
-          <div className="grid grid-cols-1 gap-2 w-full">
-            {msg.cards.map((card, i) => (
-              <AICardComponent key={i} card={card} onAction={onSuggestionClick} />
-            ))}
+      {/* Text directly on background — NO box, NO border, NO background */}
+      <div className="flex-1 min-w-0 space-y-3">
+        {isEmpty ? (
+          <div className="flex items-center gap-2 py-1">
+            <Zap className="w-3.5 h-3.5 text-red-400/60 animate-pulse" />
+            <div className="flex gap-1">
+              {[0,1,2].map(i => (
+                <span key={i} className="w-1.5 h-1.5 rounded-full bg-red-400/40 animate-bounce"
+                  style={{ animationDelay: `${i * 0.15}s` }} />
+              ))}
+            </div>
           </div>
-        )}
+        ) : (
+          <>
+            {/* Raw text on background — this IS the design */}
+            <div className="text-[14px] font-light tracking-wide space-y-0.5 relative pr-6">
+              {renderText(msg.content)}
+              {msg.isStreaming && <Cursor />}
 
-        {/* Suggestions */}
-        {!isUser && msg.suggestions && msg.suggestions.length > 0 && !msg.isStreaming && (
-          <div className="flex flex-wrap gap-1.5 mt-1">
-            {msg.suggestions.map((s, i) => (
-              <button
-                key={i}
-                onClick={() => onSuggestionClick(s)}
-                className="text-xs px-3 py-1.5 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 hover:border-primary/40 text-muted-foreground hover:text-foreground transition-all"
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        )}
+              {/* Copy — only visible on hover, floats top-right */}
+              {!msg.isStreaming && msg.content && (
+                <button
+                  onClick={handleCopy}
+                  className="absolute top-0 right-0 p-1 opacity-0 group-hover:opacity-100 transition-opacity text-white/30 hover:text-white/70"
+                >
+                  {copied ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+                </button>
+              )}
+            </div>
 
-        {/* Timestamp */}
-        <p className="text-[10px] text-muted-foreground/50 px-1">
-          {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </p>
+            {/* Cards — materialise below the text */}
+            {!msg.isStreaming && msg.cards && msg.cards.length > 0 && (
+              <div className="grid grid-cols-1 gap-2 pt-1">
+                {msg.cards.map((card, i) => (
+                  <AICardComponent key={i} card={card} delay={i * 80} onAction={onSuggestion} />
+                ))}
+              </div>
+            )}
+
+            {/* Suggestion chips */}
+            {!msg.isStreaming && msg.suggestions && msg.suggestions.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-0.5">
+                {msg.suggestions.map((s, i) => (
+                  <button
+                    key={i}
+                    onClick={() => onSuggestion(s)}
+                    style={{ animationDelay: `${i * 60}ms`, animation: 'fadeUp 0.4s ease both' }}
+                    className="text-xs px-3 py-1.5 rounded-full border border-white/8 text-white/45 hover:text-white/80 hover:border-red-500/40 hover:bg-red-950/20 transition-all duration-200"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Timestamp */}
+            <p className="text-[10px] text-white/20 pt-0.5">
+              {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </p>
+          </>
+        )}
       </div>
     </div>
   );
 };
 
-// ── Thinking indicator ─────────────────────────────────────────────────────
-
-const ThinkingIndicator: React.FC = () => (
-  <div className="flex gap-3">
-    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-red-700 via-red-900 to-zinc-900 flex items-center justify-center flex-shrink-0 shadow-lg shadow-red-900/30">
-      <Sparkles className="w-4 h-4 text-red-300" />
-    </div>
-    <div className="bg-zinc-900/80 border border-white/5 rounded-2xl rounded-tl-sm px-4 py-3 flex items-center gap-2">
-      <Zap className="w-3 h-3 text-red-400 animate-pulse" />
-      <span className="text-xs text-muted-foreground">Neto AI is thinking</span>
-      <div className="flex gap-1">
-        {[0, 1, 2].map((i) => (
-          <span
-            key={i}
-            className="w-1.5 h-1.5 rounded-full bg-red-500/60 animate-bounce"
-            style={{ animationDelay: `${i * 0.15}s` }}
-          />
-        ))}
-      </div>
-    </div>
-  </div>
-);
-
-// ── Main Component ─────────────────────────────────────────────────────────
+// ── Main component ────────────────────────────────────────────────────────────
 
 export const NetoAIChat: React.FC = () => {
   const { user } = useAuth();
   const { messages, isLoading, sendMessage, clearHistory, stopGeneration } = useNetoAI();
   const [input, setInput] = useState('');
-  const [showScrollBtn, setShowScrollBtn] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const endRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, []);
-
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, scrollToBottom]);
-
-  const handleScroll = () => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    setShowScrollBtn(distFromBottom > 200);
-  };
+    endRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
     sendMessage(input);
     setInput('');
-    inputRef.current?.focus();
-  };
-
-  const handleSuggestion = (text: string) => {
-    sendMessage(text);
-    inputRef.current?.focus();
   };
 
   return (
-    <div className="flex flex-col h-full bg-background">
-      {/* Header */}
-      <div className="px-4 py-3 border-b border-border bg-zinc-950/50 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-red-700 via-red-900 to-zinc-900 flex items-center justify-center shadow-lg shadow-red-900/40">
-            <Sparkles className="w-4 h-4 text-red-300" />
-          </div>
-          <div>
-            <div className="flex items-center gap-1.5">
-              <p className="font-bold text-sm">Neto AI</p>
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-900/30 text-red-400 border border-red-800/30 font-medium">BETA</span>
+    <>
+      {/* Keyframe styles */}
+      <style>{`
+        @keyframes fadeUp {
+          from { opacity: 0; transform: translateY(10px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes blink {
+          0%, 100% { opacity: 1; }
+          50%       { opacity: 0; }
+        }
+        @keyframes pulse {
+          0%, 100% { transform: scale(1); opacity: 0.8; }
+          50%       { transform: scale(1.4); opacity: 0.4; }
+        }
+      `}</style>
+
+      <div className="flex flex-col h-full w-full overflow-hidden" style={{ background: 'var(--background)' }}>
+
+        {/* Header — minimal, no heavy box */}
+        <div className="px-5 py-3.5 flex items-center justify-between border-b border-white/5 flex-shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+              style={{
+                background: 'radial-gradient(circle at 35% 35%, #7f1d1d, #3f0000)',
+                boxShadow: '0 0 16px #ef444425',
+              }}
+            >
+              <Sparkles className="w-4 h-4 text-red-300" />
             </div>
-            <p className="text-[11px] text-muted-foreground">
-              {isLoading ? (
-                <span className="flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-                  Generating...
-                </span>
-              ) : (
-                <span className="flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                  Online · Llama 3.3 70B
-                </span>
-              )}
-            </p>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-sm text-white/90 tracking-wide">Neto AI</span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-950/60 text-red-400 border border-red-800/30 font-medium tracking-wider">BETA</span>
+              </div>
+              <p className="text-[11px] text-white/30 flex items-center gap-1.5 mt-0.5">
+                {isLoading
+                  ? <><span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" style={{animation:'pulse 1s ease infinite'}} />generating</>
+                  : <><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />mixtral · groq</>
+                }
+              </p>
+            </div>
           </div>
-        </div>
-        <button
-          onClick={clearHistory}
-          title="Clear history"
-          className="p-2 hover:bg-accent rounded-full text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
-      </div>
-
-      {/* Messages */}
-      <div
-        ref={scrollContainerRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-4 py-4 space-y-5 scroll-smooth"
-      >
-        {/* Ambient background effect */}
-        <div className="pointer-events-none fixed inset-0 overflow-hidden opacity-20">
-          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-64 h-64 rounded-full bg-red-900 blur-[80px]" />
+          <button
+            onClick={clearHistory}
+            className="p-2 rounded-full text-white/20 hover:text-white/60 hover:bg-white/5 transition-all"
+            title="Clear"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
         </div>
 
-        {messages.map((msg) => (
-          <AIBubble
-            key={msg.id}
-            msg={msg}
-            userName={user?.displayName || user?.username}
-            userAvatar={user?.profileImage}
-            onSuggestionClick={handleSuggestion}
-          />
-        ))}
-
-        {/* Show thinking state ONLY when loading and last message is user */}
-        {isLoading && messages[messages.length - 1]?.role === 'user' && (
-          <ThinkingIndicator />
-        )}
-
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Scroll to bottom button */}
-      {showScrollBtn && (
-        <button
-          onClick={scrollToBottom}
-          className="absolute bottom-24 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-full text-xs font-medium shadow-lg hover:opacity-90 transition-all z-10"
+        {/* Messages — scroll area */}
+        <div
+          ref={scrollRef}
+          className="flex-1 overflow-y-auto overflow-x-hidden px-5 py-5 space-y-7"
+          style={{ scrollbarWidth: 'thin', scrollbarColor: '#ffffff10 transparent' }}
         >
-          <ChevronDown className="w-3.5 h-3.5" />
-          New messages
-        </button>
-      )}
+          {messages.map((msg) =>
+            msg.role === 'user'
+              ? <UserBubble key={msg.id} msg={msg} avatar={user?.profileImage} />
+              : <AIResponse key={msg.id} msg={msg} onSuggestion={(s) => { sendMessage(s); }} />
+          )}
+          <div ref={endRef} />
+        </div>
 
-      {/* Input area */}
-      <div className="p-4 border-t border-border bg-zinc-950/30">
-        <form onSubmit={handleSubmit} className="flex items-end gap-2">
-          <div className="flex-1 relative">
+        {/* Input — floats at bottom */}
+        <div className="px-4 pb-4 pt-3 border-t border-white/5 flex-shrink-0">
+          <form onSubmit={handleSubmit} className="flex items-center gap-2">
             <input
               ref={inputRef}
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask Neto AI anything…"
+              placeholder="Ask anything…"
               disabled={isLoading}
-              className="w-full bg-zinc-900/80 border border-white/10 focus:border-red-800/50 rounded-2xl py-3 pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/60 outline-none transition-colors disabled:opacity-50"
+              className="flex-1 min-w-0 rounded-2xl py-3 px-4 text-sm text-white/85 placeholder:text-white/25 outline-none transition-all disabled:opacity-40"
+              style={{
+                background: 'rgba(255,255,255,0.04)',
+                border: '1px solid rgba(255,255,255,0.08)',
+              }}
+              onFocus={(e) => { e.currentTarget.style.borderColor = 'rgba(239,68,68,0.35)'; }}
+              onBlur={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; }}
             />
-          </div>
-
-          {isLoading ? (
-            <button
-              type="button"
-              onClick={stopGeneration}
-              className="p-3 bg-red-900/40 border border-red-800/30 text-red-400 rounded-full hover:bg-red-900/60 transition-all flex-shrink-0"
-              title="Stop generation"
-            >
-              <StopCircle className="w-5 h-5" />
-            </button>
-          ) : (
-            <button
-              type="submit"
-              disabled={!input.trim()}
-              className="p-3 bg-primary text-primary-foreground rounded-full disabled:opacity-30 hover:opacity-90 transition-all flex-shrink-0 shadow-lg shadow-primary/20"
-            >
-              <Send className="w-5 h-5" />
-            </button>
-          )}
-        </form>
-
-        <p className="text-center text-[10px] text-muted-foreground/40 mt-2">
-          Powered by Groq · Llama 3.3 70B · Responses may be inaccurate
-        </p>
+            {isLoading ? (
+              <button
+                type="button"
+                onClick={stopGeneration}
+                className="p-3 rounded-full text-red-400 border border-red-800/30 bg-red-950/30 hover:bg-red-950/50 transition-all flex-shrink-0"
+              >
+                <StopCircle className="w-4 h-4" />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={!input.trim()}
+                className="p-3 rounded-full flex-shrink-0 transition-all disabled:opacity-25"
+                style={{
+                  background: input.trim() ? 'radial-gradient(circle, #7f1d1d, #450a0a)' : undefined,
+                  backgroundColor: input.trim() ? undefined : 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(239,68,68,0.2)',
+                }}
+              >
+                <Send className="w-4 h-4 text-white/80" />
+              </button>
+            )}
+          </form>
+          <p className="text-center text-[10px] text-white/15 mt-2 tracking-wide">
+            Mixtral 8×7B · Groq · NetoLynk AI
+          </p>
+        </div>
       </div>
-    </div>
+    </>
   );
 };
