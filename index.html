@@ -2,14 +2,22 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" />
+    <!-- TWEAK 1: Removed user-scalable=0 so Google doesn't flag accessibility issues -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
     <!-- Primary meta -->
     <title>NETOLYNK | Global Social Network</title>
     <meta name="description" content="Netolynk — the global social network. Share moments, connect with friends, and discover what's happening right now." />
     <meta name="theme-color" content="#3b82f6" />
+    
+    <!-- TWEAK 2 & 3: SEO & Canonical Tags for Google Search Console -->
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://netolynk.app/" />
+    
+    <!-- Standard Favicon -->
+    <link rel="icon" type="image/png" href="/netolynk-logo.png" />
 
-    <!-- Open Graph (Facebook, WhatsApp, iMessage link previews) -->
+    <!-- Open Graph (Facebook, WhatsApp, iMessage) -->
     <meta property="og:type"        content="website" />
     <meta property="og:site_name"   content="Netolynk" />
     <meta property="og:title"       content="NETOLYNK | Global Social Network" />
@@ -24,8 +32,15 @@
     <meta name="twitter:description" content="Share moments, connect with friends, and discover what's happening right now." />
     <meta name="twitter:image"       content="/netolynk-logo.png" />
 
-    <!-- PWA -->
+    <!-- PWA / Android -->
     <link rel="manifest" href="/manifest.json" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- PWA / iOS Safari -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Netolynk" />
+    <link rel="apple-touch-icon" href="/netolynk-logo.png" />
 
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
