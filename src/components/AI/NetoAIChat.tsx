@@ -10,9 +10,9 @@ import {
   Loader2,
   Zap,
 } from 'lucide-react';
-import { cn } from '../lib/utils';
-import { useNetoAI, AIMessage, AICard } from '../hooks/useNetoAI';
-import { useAuth } from '../context/AuthContext';
+import { cn } from '../../lib/utils';
+import { useNetoAI, AIMessage, AICard } from '../../hooks/useNetoAI';
+import { useAuth } from '../../context/AuthContext';
 
 // ── Markdown-lite renderer ─────────────────────────────────────────────────
 
