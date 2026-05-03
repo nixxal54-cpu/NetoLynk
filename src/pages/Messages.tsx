@@ -42,7 +42,12 @@ import {
   BellOff,
   Flag,
   Trash,
+  Gif,
+  ExternalLink,
+  BarChart2,
+  HelpCircle,
 } from 'lucide-react';
+import { GifPicker } from '../components/UI/GifPicker';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '../lib/utils';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -61,6 +66,19 @@ interface ExtendedMessage extends Message {
     senderId: string;
   } | null;
   deleted?: boolean;
+  gifUrl?: string;
+  sharedPost?: {
+    id: string;
+    username: string;
+    userProfileImage?: string;
+    text?: string;
+    mediaUrls?: string[];
+    gifUrl?: string;
+    type: string;
+    pollQuestion?: string;
+    quizQuestion?: string;
+    createdAt: string;
+  };
 }
 
 const QUICK_REACTIONS = ['❤️', '😂', '😮', '😢', '👏', '🔥'];
@@ -208,6 +226,82 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
   );
 };
 
+// ── Shared Post Card ──────────────────────────────────────────────────────────
+
+interface SharedPostCardProps {
+  post: ExtendedMessage['sharedPost'];
+  isOwn: boolean;
+}
+
+const SharedPostCard: React.FC<SharedPostCardProps> = ({ post, isOwn }) => {
+  const navigate = useNavigate();
+  if (!post) return null;
+
+  const getTypeLabel = () => {
+    if (post.type === 'poll') return { label: 'Poll', icon: <BarChart2 className="w-3 h-3" />, color: 'text-blue-500' };
+    if (post.type === 'quiz') return { label: 'Quiz', icon: <HelpCircle className="w-3 h-3" />, color: 'text-purple-500' };
+    if (post.type === 'gif') return { label: 'GIF Post', icon: <Gif className="w-3 h-3" />, color: 'text-green-500' };
+    return null;
+  };
+
+  const typeInfo = getTypeLabel();
+  const avatarSrc = post.userProfileImage || `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.username}`;
+
+  return (
+    <button
+      onClick={() => navigate(`/post/${post.id}`)}
+      className={cn(
+        'block w-full max-w-[260px] rounded-2xl overflow-hidden border text-left transition-opacity hover:opacity-90',
+        isOwn
+          ? 'border-white/20 bg-primary-foreground/10'
+          : 'border-border bg-background'
+      )}
+    >
+      {/* Header */}
+      <div className={cn('px-3 pt-2.5 pb-1 border-b flex items-center gap-2', isOwn ? 'border-white/10' : 'border-border')}>
+        <img src={avatarSrc} alt={post.username} className="w-6 h-6 rounded-full object-cover flex-shrink-0" />
+        <span className={cn('text-xs font-bold truncate', isOwn ? 'text-primary-foreground/90' : 'text-foreground')}>@{post.username}</span>
+        {typeInfo && (
+          <span className={cn('ml-auto flex items-center gap-1 text-[10px] font-semibold', typeInfo.color)}>
+            {typeInfo.icon} {typeInfo.label}
+          </span>
+        )}
+      </div>
+
+      {/* Content */}
+      <div className="px-3 py-2">
+        {post.type === 'poll' && post.pollQuestion && (
+          <p className={cn('text-xs font-medium line-clamp-2', isOwn ? 'text-primary-foreground/80' : 'text-foreground/80')}>
+            📊 {post.pollQuestion}
+          </p>
+        )}
+        {post.type === 'quiz' && post.quizQuestion && (
+          <p className={cn('text-xs font-medium line-clamp-2', isOwn ? 'text-primary-foreground/80' : 'text-foreground/80')}>
+            ❓ {post.quizQuestion}
+          </p>
+        )}
+        {post.text && post.type !== 'poll' && post.type !== 'quiz' && (
+          <p className={cn('text-xs line-clamp-3', isOwn ? 'text-primary-foreground/80' : 'text-foreground/80')}>
+            {post.text}
+          </p>
+        )}
+        {post.gifUrl && (
+          <img src={post.gifUrl} alt="GIF" className="w-full max-h-28 object-cover rounded-lg mt-1.5" />
+        )}
+        {!post.gifUrl && post.mediaUrls && post.mediaUrls.length > 0 && (
+          <img src={post.mediaUrls[0]} alt="Post media" className="w-full max-h-28 object-cover rounded-lg mt-1.5" />
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className={cn('px-3 pb-2 flex items-center gap-1', isOwn ? 'text-primary-foreground/50' : 'text-muted-foreground')}>
+        <ExternalLink className="w-3 h-3" />
+        <span className="text-[10px]">View post</span>
+      </div>
+    </button>
+  );
+};
+
 // ── Message Bubble ────────────────────────────────────────────────────────────
 
 interface MessageBubbleProps {
@@ -303,6 +397,19 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
                   <ZoomIn className="w-5 h-5 text-white" />
                 </div>
               </div>
+            </div>
+          )}
+          {msg.gifUrl && !msg.sharedPost && (
+            <img
+              src={msg.gifUrl}
+              alt="GIF"
+              className="max-w-full rounded-xl mb-1 max-h-48 object-cover"
+              loading="lazy"
+            />
+          )}
+          {msg.sharedPost && (
+            <div className="mb-1">
+              <SharedPostCard post={msg.sharedPost} isOwn={isOwn} />
             </div>
           )}
           {msg.text && <p className="break-words">{msg.text}</p>}
@@ -421,6 +528,8 @@ export const Messages: React.FC = () => {
   const [showSearch, setShowSearch] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [showChatOptions, setShowChatOptions] = useState(false);
+  const [dmGifUrl, setDmGifUrl] = useState<string | null>(null);
+  const [showDmGifPicker, setShowDmGifPicker] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -512,17 +621,19 @@ export const Messages: React.FC = () => {
     prevMessagesLengthRef.current = messages.length;
   }, [messages]);
 
-  const sendMessage = async (text: string, imageUrl?: string) => {
-    if ((!text.trim() && !imageUrl) || !selectedChat || !user) return;
+  const sendMessage = async (text: string, imageUrl?: string, gifUrl?: string) => {
+    if ((!text.trim() && !imageUrl && !gifUrl) || !selectedChat || !user) return;
     setIsSending(true);
     setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
     try {
+      const msgType = gifUrl ? 'gif' : imageUrl ? 'image' : 'text';
       await addDoc(collection(db, `chats/${selectedChat.id}/messages`), {
         chatId: selectedChat.id,
         senderId: user.uid,
         text: text.trim(),
         imageUrl: imageUrl || null,
-        type: imageUrl ? 'image' : 'text',
+        gifUrl: gifUrl || null,
+        type: msgType,
         createdAt: new Date().toISOString(),
         serverCreatedAt: serverTimestamp(),
         deleted: false,
@@ -530,7 +641,7 @@ export const Messages: React.FC = () => {
       });
       const partnerId = selectedChat.participants.find((p) => p !== user.uid) ?? '';
       await updateDoc(doc(db, 'chats', selectedChat.id), {
-        lastMessage: imageUrl ? 'Sent an image' : text.trim(),
+        lastMessage: gifUrl ? 'Sent a GIF' : imageUrl ? 'Sent an image' : text.trim(),
         lastMessageAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         [`unreadCount.${partnerId}`]: increment(1),
@@ -538,6 +649,7 @@ export const Messages: React.FC = () => {
       });
       setMessageText('');
       setReplyTo(null);
+      setDmGifUrl(null);
       updateTypingStatus(false);
     } catch (error) {
       console.error('Error sending message:', error);
@@ -585,8 +697,8 @@ export const Messages: React.FC = () => {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!messageText.trim()) return;
-    await sendMessage(messageText);
+    if (!messageText.trim() && !dmGifUrl) return;
+    await sendMessage(messageText, undefined, dmGifUrl || undefined);
   };
 
   const filteredChats = chats.filter((chat) => {
@@ -767,15 +879,38 @@ export const Messages: React.FC = () => {
                 </div>
               )}
 
-              <form onSubmit={handleSendMessage} className="p-4 border-t border-border flex items-center gap-2 bg-background">
-                <label className="p-2 text-primary hover:bg-primary/10 rounded-full opacity-60 hover:opacity-100 transition-opacity cursor-pointer">
-                  <ImageIcon className="w-6 h-6" />
-                  <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
-                </label>
-                <input type="text" value={messageText} onChange={handleTyping} placeholder="Message…" className="flex-1 bg-accent border border-border rounded-full py-3 px-5 focus:border-primary outline-none text-foreground placeholder:text-muted-foreground text-sm" />
-                <button type="submit" disabled={isSending || !messageText.trim()} className="p-3 bg-primary text-primary-foreground rounded-full disabled:opacity-40 hover:opacity-90 transition-all">
-                  {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-                </button>
+              <form onSubmit={handleSendMessage} className="p-4 border-t border-border flex flex-col gap-2 bg-background">
+                {dmGifUrl && (
+                  <div className="relative inline-block pl-1">
+                    <img src={dmGifUrl} alt="GIF" className="max-h-28 rounded-xl border border-border" />
+                    <button type="button" onClick={() => setDmGifUrl(null)} className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5 text-white"><X className="w-3 h-3" /></button>
+                  </div>
+                )}
+                <div className="relative">
+                  {showDmGifPicker && (
+                    <div className="absolute bottom-full mb-2 left-0 right-0 z-50">
+                      <GifPicker onSelect={(url) => { setDmGifUrl(url); setShowDmGifPicker(false); }} onClose={() => setShowDmGifPicker(false)} />
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <label className="p-2 text-primary hover:bg-primary/10 rounded-full opacity-60 hover:opacity-100 transition-opacity cursor-pointer">
+                      <ImageIcon className="w-6 h-6" />
+                      <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowDmGifPicker(v => !v)}
+                      className={cn('p-2 rounded-full transition-colors', showDmGifPicker || dmGifUrl ? 'text-green-500 bg-green-500/10' : 'text-muted-foreground hover:text-green-500 hover:bg-green-500/10')}
+                      title="Send GIF"
+                    >
+                      <Gif className="w-6 h-6" />
+                    </button>
+                    <input type="text" value={messageText} onChange={handleTyping} placeholder="Message…" className="flex-1 bg-accent border border-border rounded-full py-3 px-5 focus:border-primary outline-none text-foreground placeholder:text-muted-foreground text-sm" />
+                    <button type="submit" disabled={isSending || (!messageText.trim() && !dmGifUrl)} className="p-3 bg-primary text-primary-foreground rounded-full disabled:opacity-40 hover:opacity-90 transition-all">
+                      {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+                    </button>
+                  </div>
+                </div>
               </form>
             </>
           )}
