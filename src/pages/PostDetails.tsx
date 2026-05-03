@@ -10,7 +10,9 @@ import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { Post as PostType } from '../types';
 import { PostCard } from '../components/Feed/PostCard';
-import { ChevronLeft, Loader2, Send, Trash2, MoreHorizontal } from 'lucide-react';
+import { ChevronLeft, Loader2, Send, Trash2, MoreHorizontal, Gif, X } from 'lucide-react';
+import { GifPicker } from '../components/UI/GifPicker';
+import { AnimatePresence, motion as m2 } from 'motion/react';
 import { motion } from 'motion/react';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
@@ -43,6 +45,8 @@ export const PostDetails: React.FC = () => {
   const [lastCommentDoc, setLastCommentDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [hasMoreComments, setHasMoreComments] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [commentGif, setCommentGif] = useState<string | null>(null);
+  const [showGifPicker, setShowGifPicker] = useState(false);
 
   usePageTitle(post ? `${post.username}: ${post.text?.slice(0, 50) || 'Post'}` : 'Post');
 
@@ -119,7 +123,8 @@ export const PostDetails: React.FC = () => {
 
   const handleAddComment = useCallback(async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!newComment.trim() || !user || !id || submitting) return;
+    if (!newComment.trim() && !commentGif) return;
+    if (!user || !id || submitting) return;
 
     const trimmed = newComment.trim();
     if (trimmed.length > 1000) { toast.error('Comment is too long'); return; }
@@ -128,21 +133,23 @@ export const PostDetails: React.FC = () => {
     const tempId = `temp_${Date.now()}`;
     const optimisticComment: Comment = {
       id: tempId, postId: id, userId: user.uid, username: user.username,
-      userProfileImage: user.profileImage || '', text: trimmed, createdAt: new Date().toISOString(),
+      userProfileImage: user.profileImage || '', text: trimmed, gifUrl: commentGif || undefined, createdAt: new Date().toISOString(),
     };
     
     setComments(prev => [...prev, optimisticComment]);
     setNewComment('');
+    const savedGif = commentGif;
+    setCommentGif(null);
 
     try {
       await addDoc(collection(db, 'posts', id, 'comments'), {
         postId: id, userId: user.uid, username: user.username,
         userProfileImage: user.profileImage || '', text: trimmed,
+        gifUrl: savedGif || null,
         createdAt: new Date().toISOString(), serverCreatedAt: serverTimestamp(),
       });
 
-      // Fire and forget mentions processing for comments
-      processMentions(trimmed, 'comment', id, user);
+      if (trimmed) processMentions(trimmed, 'comment', id, user);
 
       setComments(prev => prev.filter(c => c.id !== tempId));
       if (post && post.userId !== user.uid) {
@@ -155,11 +162,14 @@ export const PostDetails: React.FC = () => {
     } catch (error) {
       setComments(prev => prev.filter(c => c.id !== tempId));
       setNewComment(trimmed);
+      setCommentGif(savedGif);
       toast.error('Failed to add comment. Please try again.');
     } finally {
       setSubmitting(false);
     }
-  }, [newComment, user, id, submitting, post]);
+  }, [newComment, commentGif, user, id, submitting, post]);
+
+
 
   // Submit comment on Enter key (without shift)
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -241,6 +251,11 @@ export const PostDetails: React.FC = () => {
                     )}
                   </div>
                   <p className="mt-1 text-[15px] break-words whitespace-pre-wrap">{renderCommentText(comment.text)}</p>
+                  {(comment as any).gifUrl && (
+                    <div className="mt-2 rounded-xl overflow-hidden border border-border inline-block">
+                      <img src={(comment as any).gifUrl} alt="GIF" className="max-h-44 rounded-xl" loading="lazy" />
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -261,22 +276,51 @@ export const PostDetails: React.FC = () => {
         {!user ? (
           <p className="text-center text-sm text-muted-foreground py-2"><button onClick={() => navigate('/login')} className="text-primary hover:underline font-medium">Sign in</button> to leave a comment.</p>
         ) : (
-          <form onSubmit={handleAddComment} className="flex gap-3 items-end">
-            <img src={user.profileImage || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.username}`} alt="You" className="w-10 h-10 rounded-full object-cover hidden sm:block flex-shrink-0 bg-accent" />
-            
-            <MentionTextarea
-              value={newComment}
-              onChange={(e) => setNewComment(e.target.value)} // <--- This fixes the typing!
-              onKeyDown={handleKeyDown}
-              placeholder="Post your reply... Type @ to mention"
-              className="flex-1 bg-accent/30 border border-border rounded-2xl px-4 py-3 text-base md:text-sm min-h-[46px] max-h-[120px] overflow-y-auto scrollbar-hide"
-              rows={1}
-            />
-            
-            <button type="submit" disabled={!newComment.trim() || submitting} className="p-3 bg-primary text-primary-foreground rounded-full disabled:opacity-50 hover:opacity-90 transition-opacity shrink-0 mb-0.5" aria-label="Post comment">
-              {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-            </button>
-          </form>
+          <div className="relative">
+            <AnimatePresence>
+              {showGifPicker && (
+                <m2.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} className="absolute bottom-full mb-2 left-0 right-0 z-50">
+                  <GifPicker onSelect={(url) => { setCommentGif(url); setShowGifPicker(false); }} onClose={() => setShowGifPicker(false)} />
+                </m2.div>
+              )}
+            </AnimatePresence>
+
+            {commentGif && (
+              <div className="mb-2 relative inline-block">
+                <img src={commentGif} alt="GIF" className="max-h-32 rounded-xl border border-border" />
+                <button onClick={() => setCommentGif(null)} className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5 text-white">
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+
+            <form onSubmit={handleAddComment} className="flex gap-3 items-end">
+              <img src={user.profileImage || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.username}`} alt="You" className="w-10 h-10 rounded-full object-cover hidden sm:block flex-shrink-0 bg-accent" />
+              
+              <div className="flex-1 flex items-end gap-2 bg-accent/30 border border-border rounded-2xl px-3 py-2">
+                <MentionTextarea
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Post your reply... Type @ to mention"
+                  className="flex-1 bg-transparent border-none focus:ring-0 text-base md:text-sm min-h-[30px] max-h-[120px] overflow-y-auto scrollbar-hide resize-none"
+                  rows={1}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowGifPicker(v => !v)}
+                  className={`p-1 rounded-full transition-colors flex-shrink-0 ${showGifPicker || commentGif ? 'text-green-500 bg-green-500/10' : 'text-muted-foreground hover:text-green-500'}`}
+                  title="Add GIF"
+                >
+                  <Gif className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <button type="submit" disabled={(!newComment.trim() && !commentGif) || submitting} className="p-3 bg-primary text-primary-foreground rounded-full disabled:opacity-50 hover:opacity-90 transition-opacity shrink-0 mb-0.5" aria-label="Post comment">
+                {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+              </button>
+            </form>
+          </div>
         )}
       </div>
     </motion.div>
