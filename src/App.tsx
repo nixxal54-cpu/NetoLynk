@@ -25,8 +25,8 @@ import { usePushNotifications } from './hooks/usePushNotifications';
 const AppContent: React.FC = () => {
   const { firebaseUser, loading } = useAuth();
 
-  useNetolynkSystem();
-  useDemoSeed();
+  // useNetolynkSystem();
+  // useDemoSeed();
   usePushNotifications();
 
   if (loading) {
