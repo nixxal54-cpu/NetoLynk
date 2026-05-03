@@ -48,7 +48,7 @@ service cloud.firestore {
     }
 
     // ===============================================================
-    // Rules
+    // Core App Rules
     // ===============================================================
 
     match /users/{userId} {
@@ -121,25 +121,44 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && resource.data.recipientId == request.auth.uid;
     }
 
-    // ── Reviews (public wall — written by users, visible to all) ────────────
     match /reviews/{reviewId} {
-      // Any logged-in user can read all reviews
       allow read: if isAuthenticated();
-
-      // Any authenticated user can post a review with valid data
       allow create: if isAuthenticated() && isValidReview(request.resource.data);
-
-      // Only the author can delete their own review
       allow delete: if isAuthenticated() && request.auth.uid == resource.data.uid;
-
-      // Reviews are immutable once posted — no edits allowed
       allow update: if false;
     }
 
-    // ── Demo seed sentinel ───────────────────────────────────────────────────
     match /meta/{docId} {
       allow read: if isAuthenticated();
       allow write: if isAuthenticated();
     }
+
+    // ===============================================================
+    // 📊 Analytics Rules (Merged from second file)
+    // ===============================================================
+
+    match /analytics_events/{eventId} {
+      allow create: if isAuthenticated();
+      allow read: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    match /analytics_daily/{dateId} {
+      allow read: if isAdmin();
+      allow write: if isAuthenticated();
+    }
+
+    match /analytics_presence/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId);
+    }
+
+    match /analytics_alerts/{alertId} {
+      allow read: if isAdmin();
+      allow create: if false;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
   }
 }
