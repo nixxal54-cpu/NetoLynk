@@ -15,6 +15,19 @@ export interface User {
   createdAt: string;
 }
 
+export interface PollOption {
+  id: string;
+  text: string;
+  votes: number;
+  votedBy: string[];
+}
+
+export interface QuizOption {
+  id: string;
+  text: string;
+  isCorrect: boolean;
+}
+
 export interface Post {
   id: string;
   userId: string;
@@ -22,11 +35,18 @@ export interface Post {
   userProfileImage?: string;
   text?: string;
   mediaUrls: string[];
-  type: 'text' | 'image' | 'video';
+  gifUrl?: string;
+  type: 'text' | 'image' | 'video' | 'poll' | 'quiz' | 'gif';
   mood?: {
     emoji: string;
     label: string;
   };
+  pollOptions?: PollOption[];
+  pollQuestion?: string;
+  pollExpiresAt?: string;
+  quizOptions?: QuizOption[];
+  quizQuestion?: string;
+  quizExplanation?: string;
   likesCount: number;
   commentsCount: number;
   sharesCount: number;
@@ -44,6 +64,7 @@ export interface Comment {
   username: string;
   userProfileImage?: string;
   text: string;
+  gifUrl?: string;
   createdAt: string;
 }
 
@@ -79,6 +100,19 @@ export interface Message {
   text?: string;
   mediaUrl?: string;
   imageUrl?: string;
-  type: 'text' | 'image';
+  gifUrl?: string;
+  type: 'text' | 'image' | 'gif' | 'shared_post';
+  sharedPost?: {
+    id: string;
+    username: string;
+    userProfileImage?: string;
+    text?: string;
+    mediaUrls?: string[];
+    gifUrl?: string;
+    type: string;
+    pollQuestion?: string;
+    quizQuestion?: string;
+    createdAt: string;
+  };
   createdAt: string;
 }
