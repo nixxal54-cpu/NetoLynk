@@ -21,7 +21,6 @@ import { SupportPage } from './pages/SupportPage';
 import { ReviewsPage } from './pages/ReviewsPage';
 import { Loader2 } from 'lucide-react';
 import { useNetolynkSystem } from './hooks/useNetolynkSystem';
-import { useDemoSeed } from './hooks/useDemoSeed';
 import { usePushNotifications } from './hooks/usePushNotifications';
 
 const AppContent: React.FC = () => {
