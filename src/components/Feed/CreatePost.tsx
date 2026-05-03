@@ -12,7 +12,7 @@ import { GifPicker } from '../UI/GifPicker';
 import { 
   Image as ImageIcon, Smile, Send, Loader2,
   Angry, Leaf, Skull, Flame, Sparkles, Coffee, CloudRain, Rocket,
-  BarChart2, HelpCircle, Gif, Plus, X, Check, ChevronRight
+  BarChart2, HelpCircle, FileImage, Plus, X, Check, ChevronRight
 } from 'lucide-react';
 
 interface CreatePostProps {
@@ -174,7 +174,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({ onPostCreated }) => {
     { key: 'text', label: 'Post', Icon: Send, color: 'text-primary' },
     { key: 'poll', label: 'Poll', Icon: BarChart2, color: 'text-blue-500' },
     { key: 'quiz', label: 'Quiz', Icon: HelpCircle, color: 'text-purple-500' },
-    { key: 'gif', label: 'GIF', Icon: Gif, color: 'text-green-500' },
+    { key: 'gif', label: 'GIF', Icon: FileImage, color: 'text-green-500' },
   ];
 
   return (
@@ -262,7 +262,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({ onPostCreated }) => {
                     onClick={() => setShowGifPicker(true)}
                     className="w-full border-2 border-dashed border-border rounded-xl py-8 text-muted-foreground hover:border-primary hover:text-primary transition-colors flex flex-col items-center gap-2"
                   >
-                    <Gif className="w-8 h-8" />
+                    <FileImage className="w-8 h-8" />
                     <span className="text-sm font-medium">Pick a GIF</span>
                   </button>
                 )}
@@ -419,7 +419,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({ onPostCreated }) => {
                     className={cn('p-2 rounded-full transition-colors', showGifPicker || selectedGif ? 'bg-green-500/10 text-green-500' : 'text-primary hover:bg-primary/10')}
                     title="Add GIF"
                   >
-                    <Gif className="w-5 h-5" />
+                    <FileImage className="w-5 h-5" />
                   </button>
                   <button
                     type="button"
