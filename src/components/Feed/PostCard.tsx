@@ -4,10 +4,11 @@ import {
   Heart, MessageCircle, Share2, Bookmark, MoreHorizontal, 
   Trash2, Loader2, AlertCircle, ImageOff, Check, X, Link2, 
   Send, Twitter, MessageSquare,
-  Angry, Leaf, Skull, Flame, Sparkles, Coffee, CloudRain, Rocket, Smile
+  Angry, Leaf, Skull, Flame, Sparkles, Coffee, CloudRain, Rocket, Smile,
+  BarChart2, HelpCircle, CheckCircle2, XCircle
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import { Post, User } from '../../types';
+import { Post, User, PollOption } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { cn } from '../../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -37,7 +38,7 @@ export const getMoodIconByLabel = (label: string) => {
 };
 
 // ----------------------------------------------------------------------------
-// 2. MEMORY CACHE (Prevents N+1 Reads)
+// 2. MEMORY CACHE
 // ----------------------------------------------------------------------------
 const interactionCache = new Map<string, boolean>();
 const setCache = (key: string, value: boolean) => {
@@ -46,7 +47,165 @@ const setCache = (key: string, value: boolean) => {
 };
 
 // ----------------------------------------------------------------------------
-// 3. SHARE SHEET
+// 3. POLL CARD
+// ----------------------------------------------------------------------------
+const PollCard: React.FC<{ post: Post }> = ({ post }) => {
+  const { user } = useAuth();
+  const [options, setOptions] = useState<PollOption[]>(post.pollOptions || []);
+  const [voting, setVoting] = useState(false);
+  const [hasVoted, setHasVoted] = useState(false);
+
+  useEffect(() => {
+    if (user && options.some(o => o.votedBy?.includes(user.uid))) {
+      setHasVoted(true);
+    }
+  }, [user, options]);
+
+  const totalVotes = options.reduce((sum, o) => sum + (o.votes || 0), 0);
+
+  const handleVote = async (optionId: string) => {
+    if (!user || hasVoted || voting) return;
+    setVoting(true);
+
+    const updatedOptions = options.map(o => ({
+      ...o,
+      votes: o.id === optionId ? (o.votes || 0) + 1 : o.votes || 0,
+      votedBy: o.id === optionId ? [...(o.votedBy || []), user.uid] : o.votedBy || [],
+    }));
+
+    setOptions(updatedOptions);
+    setHasVoted(true);
+
+    try {
+      await updateDoc(doc(db, 'posts', post.id), { pollOptions: updatedOptions });
+    } catch {
+      toast.error("Couldn't record your vote");
+      setOptions(post.pollOptions || []);
+      setHasVoted(false);
+    } finally {
+      setVoting(false);
+    }
+  };
+
+  const isExpired = post.pollExpiresAt ? new Date(post.pollExpiresAt) < new Date() : false;
+
+  return (
+    <div className="mt-3 bg-blue-500/5 border border-blue-500/20 rounded-2xl p-4">
+      <div className="flex items-center gap-2 mb-3 text-blue-500">
+        <BarChart2 className="w-4 h-4" />
+        <span className="text-xs font-semibold uppercase tracking-wide">Poll</span>
+        {isExpired && <span className="text-xs text-muted-foreground ml-auto">Ended</span>}
+      </div>
+      <p className="font-bold text-[15px] mb-3">{post.pollQuestion}</p>
+      <div className="space-y-2">
+        {options.map((opt) => {
+          const pct = totalVotes > 0 ? Math.round((opt.votes / totalVotes) * 100) : 0;
+          const isWinner = hasVoted && opt.votes === Math.max(...options.map(o => o.votes));
+          const voted = user && opt.votedBy?.includes(user.uid);
+
+          return (
+            <button
+              key={opt.id}
+              onClick={(e) => { e.stopPropagation(); handleVote(opt.id); }}
+              disabled={hasVoted || isExpired || !user || voting}
+              className={cn(
+                'relative w-full text-left rounded-xl overflow-hidden transition-all',
+                !hasVoted && !isExpired && user ? 'hover:border-blue-500 cursor-pointer' : 'cursor-default',
+                voted ? 'border-2 border-blue-500' : 'border-2 border-border'
+              )}
+            >
+              {hasVoted && (
+                <div
+                  className={cn(
+                    'absolute inset-y-0 left-0 rounded-xl transition-all duration-500',
+                    isWinner ? 'bg-blue-500/20' : 'bg-accent/60'
+                  )}
+                  style={{ width: `${pct}%` }}
+                />
+              )}
+              <div className="relative flex items-center justify-between px-4 py-2.5">
+                <div className="flex items-center gap-2">
+                  {voted && <Check className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />}
+                  <span className={cn('text-sm font-medium', voted ? 'text-blue-500' : 'text-foreground')}>{opt.text}</span>
+                </div>
+                {hasVoted && (
+                  <span className={cn('text-xs font-bold', isWinner ? 'text-blue-500' : 'text-muted-foreground')}>{pct}%</span>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-xs text-muted-foreground mt-3">{totalVotes} vote{totalVotes !== 1 ? 's' : ''}</p>
+    </div>
+  );
+};
+
+// ----------------------------------------------------------------------------
+// 4. QUIZ CARD
+// ----------------------------------------------------------------------------
+const QuizCard: React.FC<{ post: Post }> = ({ post }) => {
+  const { user } = useAuth();
+  const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
+  const [revealed, setRevealed] = useState(false);
+
+  const handleAnswer = (optId: string, isCorrect: boolean) => {
+    if (revealed || !user) return;
+    setSelectedAnswer(optId);
+    setRevealed(true);
+  };
+
+  return (
+    <div className="mt-3 bg-purple-500/5 border border-purple-500/20 rounded-2xl p-4">
+      <div className="flex items-center gap-2 mb-3 text-purple-500">
+        <HelpCircle className="w-4 h-4" />
+        <span className="text-xs font-semibold uppercase tracking-wide">Quiz</span>
+      </div>
+      <p className="font-bold text-[15px] mb-3">{post.quizQuestion}</p>
+      <div className="grid grid-cols-1 gap-2">
+        {(post.quizOptions || []).map((opt) => {
+          const isSelected = selectedAnswer === opt.id;
+          const showResult = revealed;
+          let btnClass = 'border-2 border-border bg-background';
+          if (showResult && opt.isCorrect) btnClass = 'border-2 border-green-500 bg-green-500/10';
+          else if (showResult && isSelected && !opt.isCorrect) btnClass = 'border-2 border-red-500 bg-red-500/10';
+
+          return (
+            <button
+              key={opt.id}
+              onClick={(e) => { e.stopPropagation(); handleAnswer(opt.id, opt.isCorrect); }}
+              disabled={revealed || !user}
+              className={cn(
+                'w-full text-left rounded-xl px-4 py-2.5 text-sm font-medium transition-all flex items-center justify-between gap-2',
+                btnClass,
+                !revealed && user ? 'hover:border-purple-500 cursor-pointer' : 'cursor-default'
+              )}
+            >
+              <span>{opt.text}</span>
+              {showResult && opt.isCorrect && <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />}
+              {showResult && isSelected && !opt.isCorrect && <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />}
+            </button>
+          );
+        })}
+      </div>
+      {revealed && post.quizExplanation && (
+        <motion.div
+          initial={{ opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mt-3 text-xs text-muted-foreground bg-accent/40 rounded-xl px-3 py-2 border border-border"
+        >
+          💡 {post.quizExplanation}
+        </motion.div>
+      )}
+      {!user && (
+        <p className="text-xs text-muted-foreground mt-2">Sign in to answer</p>
+      )}
+    </div>
+  );
+};
+
+// ----------------------------------------------------------------------------
+// 5. SHARE SHEET
 // ----------------------------------------------------------------------------
 const ShareSheet: React.FC<{ post: Post; onClose: () => void }> = ({ post, onClose }) => {
   const { user } = useAuth();
@@ -80,7 +239,7 @@ const ShareSheet: React.FC<{ post: Post; onClose: () => void }> = ({ post, onClo
         if (cancelled) return;
         setFollowingUsers(results.flatMap(snap => snap.docs.map(d => ({ ...d.data(), uid: d.id } as User))));
       } catch (e) { 
-        console.error("SHARE SHEET FETCH ERROR:", e); 
+        console.error('SHARE SHEET FETCH ERROR:', e); 
       } finally { 
         if (!cancelled) setLoadingFollowing(false); 
       }
@@ -131,17 +290,36 @@ const ShareSheet: React.FC<{ post: Post; onClose: () => void }> = ({ post, onClo
         updatedAt: new Date().toISOString(),
       }, { merge: true });
       
+      // Build rich shared post data
+      const sharedPostData = {
+        id: post.id,
+        username: post.username,
+        userProfileImage: post.userProfileImage || null,
+        text: post.text || null,
+        mediaUrls: post.mediaUrls || [],
+        gifUrl: post.gifUrl || null,
+        type: post.type,
+        pollQuestion: post.pollQuestion || null,
+        quizQuestion: post.quizQuestion || null,
+        createdAt: post.createdAt,
+      };
+
       await addDoc(collection(db, 'chats', chatId, 'messages'), {
-        chatId, senderId: user.uid, postId: post.id, deleted: false,
-        text: `📎 Shared a post: "${post.text?.slice(0, 60) || 'media'}"`,
-        type: 'text', createdAt: new Date().toISOString(),
+        chatId,
+        senderId: user.uid,
+        postId: post.id,
+        deleted: false,
+        text: '',
+        type: 'shared_post',
+        sharedPost: sharedPostData,
+        createdAt: new Date().toISOString(),
       });
       
       await updateDoc(doc(db, 'posts', post.id), { sharesCount: increment(1) }).catch(() => {});
       setSent(prev => new Set(prev).add(recipient.uid));
       toast.success(`Sent to @${recipient.username}`);
     } catch (err) { 
-      console.error("SEND TO USER ERROR:", err);
+      console.error('SEND TO USER ERROR:', err);
       toast.error('Failed to send. Try again.'); 
     } finally { 
       setSending(null); 
@@ -173,7 +351,7 @@ const ShareSheet: React.FC<{ post: Post; onClose: () => void }> = ({ post, onClo
 
           <div className="grid grid-cols-4 gap-3 mb-6">
             <button onClick={handleCopyLink} className="flex flex-col items-center gap-2">
-              <div className={cn("w-12 h-12 rounded-full flex items-center justify-center transition-colors", copied ? "bg-green-500/20" : "bg-accent hover:bg-accent/80")}>
+              <div className={cn('w-12 h-12 rounded-full flex items-center justify-center transition-colors', copied ? 'bg-green-500/20' : 'bg-accent hover:bg-accent/80')}>
                 {copied ? <Check className="w-5 h-5 text-green-500" /> : <Link2 className="w-5 h-5" />}
               </div>
               <span className="text-xs text-muted-foreground">{copied ? 'Copied!' : 'Copy link'}</span>
@@ -238,7 +416,7 @@ const ShareSheet: React.FC<{ post: Post; onClose: () => void }> = ({ post, onClo
 };
 
 // ----------------------------------------------------------------------------
-// 4. MAIN POSTCARD COMPONENT
+// 6. MAIN POSTCARD COMPONENT
 // ----------------------------------------------------------------------------
 interface PostCardProps {
   post: Post;
@@ -248,84 +426,61 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
   const navigate = useNavigate();
   const { user } = useAuth();
   
-  // --- Refs ---
   const isMounted = useRef(true);
   const menuRef = useRef<HTMLDivElement>(null);
   const syncLock = useRef<ReturnType<typeof setTimeout> | null>(null);
   
-  // --- UI State ---
   const [showMenu, setShowMenu] = useState(false);
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
   const [avatarFailed, setAvatarFailed] = useState(false);
   
-  // --- Locks ---
   const [isLiking, setIsLiking] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // --- Autonomous State ---
   const [isLiked, setIsLiked] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [localLikesCount, setLocalLikesCount] = useState(post.likesCount || 0);
 
-  // Initial Fetch logic
   useEffect(() => {
     isMounted.current = true;
     if (!user?.uid || !post.id) return;
-
     const likeKey = `${user.uid}:${post.id}:like`;
-    
-    // For 'Saved', we read directly from the post prop to avoid permission denied errors
     setIsSaved((post.savedBy ?? []).includes(user.uid));
 
     const fetchInteractions = async () => {
       try {
-        if (interactionCache.has(likeKey)) {
-          setIsLiked(interactionCache.get(likeKey)!);
-          return;
-        }
-
+        if (interactionCache.has(likeKey)) { setIsLiked(interactionCache.get(likeKey)!); return; }
         const likeSnap = await getDoc(doc(db, `posts/${post.id}/likes/${user.uid}`));
-        
         if (isMounted.current) {
           const liked = likeSnap.exists();
           setCache(likeKey, liked);
           setIsLiked(liked);
         }
-      } catch (err) {
-        console.error("LIKE FETCH ERROR:", err);
-      }
+      } catch (err) { console.error('LIKE FETCH ERROR:', err); }
     };
 
     fetchInteractions();
     return () => { isMounted.current = false; };
   }, [user?.uid, post.id, post.savedBy]);
 
-  // Sync server likesCount safely
   useEffect(() => {
-    if (!syncLock.current && isMounted.current) {
-      setLocalLikesCount(post.likesCount || 0);
-    }
+    if (!syncLock.current && isMounted.current) setLocalLikesCount(post.likesCount || 0);
   }, [post.likesCount]);
 
-  // Click-away listener for Menu
   useEffect(() => {
     if (!showMenu) return;
     const handleOutsideClick = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setShowMenu(false);
-      }
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setShowMenu(false);
     };
     document.addEventListener('mousedown', handleOutsideClick);
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [showMenu]);
 
-  // --- Handlers ---
-
   const handleLike = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!user) return toast.error("Sign in to like posts");
+    if (!user) return toast.error('Sign in to like posts');
     if (isLiking) return; 
 
     const wasLiked = isLiked;
@@ -341,13 +496,10 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
 
     try {
       const likeRef = doc(db, `posts/${post.id}/likes/${user.uid}`);
-      if (wasLiked) {
-        await deleteDoc(likeRef);
-      } else {
-        await setDoc(likeRef, { userId: user.uid, createdAt: serverTimestamp() });
-      }
+      if (wasLiked) { await deleteDoc(likeRef); }
+      else { await setDoc(likeRef, { userId: user.uid, createdAt: serverTimestamp() }); }
     } catch (err) {
-      console.error("FULL LIKE ERROR:", err);
+      console.error('FULL LIKE ERROR:', err);
       if (isMounted.current) {
         setIsLiked(wasLiked);
         setLocalLikesCount(prev => Math.max(0, wasLiked ? prev + 1 : prev - 1));
@@ -361,7 +513,7 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
 
   const handleSave = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!user) return toast.error("Sign in to save posts");
+    if (!user) return toast.error('Sign in to save posts');
     if (isSaving) return;
 
     const wasSaved = isSaved;
@@ -370,14 +522,12 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
 
     try {
       const postRef = doc(db, 'posts', post.id);
-      await updateDoc(postRef, {
-        savedBy: wasSaved ? arrayRemove(user.uid) : arrayUnion(user.uid)
-      });
-      toast.success(wasSaved ? "Removed from bookmarks" : "Saved to bookmarks");
+      await updateDoc(postRef, { savedBy: wasSaved ? arrayRemove(user.uid) : arrayUnion(user.uid) });
+      toast.success(wasSaved ? 'Removed from bookmarks' : 'Saved to bookmarks');
     } catch (err) {
-      console.error("FULL SAVE ERROR:", err);
+      console.error('FULL SAVE ERROR:', err);
       if (isMounted.current) setIsSaved(wasSaved); 
-      toast.error("Failed to save post");
+      toast.error('Failed to save post');
     } finally {
       if (isMounted.current) setIsSaving(false);
     }
@@ -386,73 +536,52 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
   const handleDelete = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
     setShowMenu(false);
-    if (isDeleting || !window.confirm("Delete this post permanently?")) return;
+    if (isDeleting || !window.confirm('Delete this post permanently?')) return;
 
     setIsDeleting(true);
     try {
       await deleteDoc(doc(db, 'posts', post.id));
-      toast.success("Post deleted successfully");
+      toast.success('Post deleted successfully');
     } catch (err) {
-      console.error("FULL DELETE ERROR:", err);
+      console.error('FULL DELETE ERROR:', err);
       if (isMounted.current) setIsDeleting(false);
-      toast.error("Failed to delete post");
+      toast.error('Failed to delete post');
     }
   }, [isDeleting, post.id]);
 
   const handleShare = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
-    setShowShareSheet(true); // Always open the custom slide-up Share Sheet
+    setShowShareSheet(true);
   }, []);
 
   const navigateToPost = () => {
     if (!isDeleting) navigate(`/post/${post.id}`);
   };
 
-  // --- RICH TEXT PARSER (Turns #hashtags and @mentions into colored text) ---
   const renderFormattedText = (text: string) => {
-    // Regex splits text into an array, keeping the hashtags/mentions intact
     const parts = text.split(/(#[a-zA-Z0-9_]+|@[a-zA-Z0-9_]+)/g);
-    
     return parts.map((part, index) => {
-      // Handle Hashtag
       if (part.match(/^#[a-zA-Z0-9_]+$/)) {
-        return (
-          <span 
-            key={index} 
-            className="text-primary hover:underline cursor-pointer font-medium"
-            onClick={(e) => {
-              e.stopPropagation();
-              navigate(`/explore`); // You can customize this later to filter by tag
-            }}
-          >
-            {part}
-          </span>
-        );
+        return <span key={index} className="text-primary hover:underline cursor-pointer font-medium" onClick={(e) => { e.stopPropagation(); navigate('/explore'); }}>{part}</span>;
       }
-      // Handle Mention
       if (part.match(/^@[a-zA-Z0-9_]+$/)) {
-        return (
-          <span 
-            key={index} 
-            className="text-primary hover:underline cursor-pointer font-medium"
-            onClick={(e) => {
-              e.stopPropagation();
-              navigate(`/profile/${part.slice(1)}`);
-            }}
-          >
-            {part}
-          </span>
-        );
+        return <span key={index} className="text-primary hover:underline cursor-pointer font-medium" onClick={(e) => { e.stopPropagation(); navigate(`/profile/${part.slice(1)}`); }}>{part}</span>;
       }
-      // Return normal text
       return part;
     });
   };
 
-  // Safe Data Parsing
   const parsedDate = post.createdAt?.toDate?.() || new Date(post.createdAt);
   const fallbackAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.username}`;
   const avatarSrc = avatarFailed || !post.userProfileImage ? fallbackAvatar : post.userProfileImage;
+
+  // Type badge
+  const getTypeBadge = () => {
+    if (post.type === 'poll') return <span className="text-[10px] font-bold uppercase tracking-wider text-blue-500 bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-500/20">Poll</span>;
+    if (post.type === 'quiz') return <span className="text-[10px] font-bold uppercase tracking-wider text-purple-500 bg-purple-500/10 px-2 py-0.5 rounded-full border border-purple-500/20">Quiz</span>;
+    if (post.type === 'gif') return <span className="text-[10px] font-bold uppercase tracking-wider text-green-500 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-500/20">GIF</span>;
+    return null;
+  };
 
   return (
     <article 
@@ -462,8 +591,8 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
       tabIndex={0}
       aria-label={`Post by ${post.username}`}
       className={cn(
-        "relative border-b border-border p-4 transition-colors cursor-pointer group/card outline-none focus-visible:ring-2 focus-visible:ring-primary",
-        isDeleting ? "opacity-50 pointer-events-none" : "hover:bg-accent/5"
+        'relative border-b border-border p-4 transition-colors cursor-pointer group/card outline-none focus-visible:ring-2 focus-visible:ring-primary',
+        isDeleting ? 'opacity-50 pointer-events-none' : 'hover:bg-accent/5'
       )}
     >
       <AnimatePresence>
@@ -492,13 +621,14 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
         <div className="flex-1 min-w-0">
           {/* Header */}
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1 truncate">
+            <div className="flex items-center gap-1.5 flex-wrap min-w-0">
               <span 
                 onClick={(e) => { e.stopPropagation(); navigate(`/profile/${post.username}`); }}
                 className="font-bold hover:underline truncate"
               >
                 {post.username}
               </span>
+              {getTypeBadge()}
               <span className="text-muted-foreground text-sm">·</span>
               <span className="text-muted-foreground text-sm shrink-0">
                 {formatDistanceToNow(parsedDate, { addSuffix: true })}
@@ -510,7 +640,6 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
                 <button 
                   onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
                   aria-label="More options"
-                  aria-expanded={showMenu}
                   className="p-1.5 hover:bg-accent rounded-full transition-colors"
                 >
                   <MoreHorizontal className="w-5 h-5 text-muted-foreground" />
@@ -546,42 +675,61 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
             </div>
           )}
 
-          {/* Text Content WITH RICH TEXT PARSING */}
-          {post.text && (
+          {/* Text Content */}
+          {post.text && post.type !== 'poll' && post.type !== 'quiz' && (
             <p className="mt-2 text-[15px] leading-relaxed break-words whitespace-pre-wrap text-foreground/90">
               {renderFormattedText(post.text)}
             </p>
           )}
 
+          {/* GIF Content */}
+          {post.gifUrl && (
+            <div className="mt-3 rounded-2xl overflow-hidden border border-border inline-block max-w-full">
+              <img
+                src={post.gifUrl}
+                alt="GIF"
+                className="max-h-72 rounded-2xl w-full object-cover"
+                loading="lazy"
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
+          )}
+
+          {/* Poll */}
+          {post.type === 'poll' && (
+            <div onClick={e => e.stopPropagation()}>
+              <PollCard post={post} />
+            </div>
+          )}
+
+          {/* Quiz */}
+          {post.type === 'quiz' && (
+            <div onClick={e => e.stopPropagation()}>
+              <QuizCard post={post} />
+            </div>
+          )}
+
           {/* Media Grid */}
           {post.mediaUrls?.length > 0 && (
             <div className={cn(
-              "mt-3 rounded-2xl overflow-hidden border border-border grid gap-0.5 bg-accent/20",
-              post.mediaUrls.length === 1 ? "grid-cols-1" : "grid-cols-2"
+              'mt-3 rounded-2xl overflow-hidden border border-border grid gap-0.5 bg-accent/20',
+              post.mediaUrls.length === 1 ? 'grid-cols-1' : 'grid-cols-2'
             )}>
               {post.mediaUrls.map((url) => {
                 if (failedImages.has(url)) {
                   return (
-                    <div key={url} className={cn("flex flex-col items-center justify-center bg-accent/30 text-muted-foreground gap-2", post.mediaUrls.length === 1 ? "aspect-square max-h-[500px]" : "aspect-square")}>
+                    <div key={url} className={cn('flex flex-col items-center justify-center bg-accent/30 text-muted-foreground gap-2', post.mediaUrls.length === 1 ? 'aspect-square max-h-[500px]' : 'aspect-square')}>
                       <ImageOff className="w-6 h-6" />
                       <span className="text-xs font-medium">Unavailable</span>
                     </div>
                   );
                 }
-
                 return (
                   <img 
                     key={url} 
                     src={url} 
-                    onError={() => setFailedImages(prev => {
-                      const next = new Set(prev);
-                      next.add(url);
-                      return next;
-                    })}
-                    className={cn(
-                      "w-full object-cover hover:opacity-95 transition-opacity",
-                      post.mediaUrls.length === 1 ? "max-h-[500px]" : "aspect-square"
-                    )} 
+                    onError={() => setFailedImages(prev => { const next = new Set(prev); next.add(url); return next; })}
+                    className={cn('w-full object-cover hover:opacity-95 transition-opacity', post.mediaUrls.length === 1 ? 'max-h-[500px]' : 'aspect-square')} 
                     alt="Post content" 
                     loading="lazy"
                   />
@@ -592,57 +740,33 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
 
           {/* Action Bar */}
           <div className="mt-4 flex items-center justify-between max-w-sm -ml-2 text-muted-foreground">
-            <button 
-              onClick={handleLike}
-              disabled={isLiking}
-              aria-label={isLiked ? "Unlike post" : "Like post"}
-              className={cn(
-                "group flex items-center gap-1 transition-colors disabled:opacity-50",
-                isLiked ? "text-pink-500" : "hover:text-pink-500"
-              )}
-            >
+            <button onClick={handleLike} disabled={isLiking} aria-label={isLiked ? 'Unlike post' : 'Like post'}
+              className={cn('group flex items-center gap-1 transition-colors disabled:opacity-50', isLiked ? 'text-pink-500' : 'hover:text-pink-500')}>
               <div className="p-2 group-hover:bg-pink-500/10 rounded-full transition-colors">
-                <Heart className={cn("w-5 h-5 transition-transform duration-150", isLiked && "fill-current text-pink-500", isLiking && "scale-110")} />
+                <Heart className={cn('w-5 h-5 transition-transform duration-150', isLiked && 'fill-current text-pink-500', isLiking && 'scale-110')} />
               </div>
-              <span className="text-xs font-medium tabular-nums min-w-[2ch]">
-                {localLikesCount > 0 ? localLikesCount : ''}
-              </span>
+              <span className="text-xs font-medium tabular-nums min-w-[2ch]">{localLikesCount > 0 ? localLikesCount : ''}</span>
             </button>
 
-            <button 
-              onClick={(e) => { e.stopPropagation(); navigate(`/post/${post.id}?focus=comment`); }}
-              aria-label="Comment on post"
-              className="group flex items-center gap-1 hover:text-blue-500 transition-colors"
-            >
+            <button onClick={(e) => { e.stopPropagation(); navigate(`/post/${post.id}?focus=comment`); }} aria-label="Comment on post"
+              className="group flex items-center gap-1 hover:text-blue-500 transition-colors">
               <div className="p-2 group-hover:bg-blue-500/10 rounded-full transition-colors">
                 <MessageCircle className="w-5 h-5 transition-transform duration-150 group-active:scale-95" />
               </div>
-              <span className="text-xs font-medium tabular-nums min-w-[2ch]">
-                {post.commentsCount > 0 ? post.commentsCount : ''}
-              </span>
+              <span className="text-xs font-medium tabular-nums min-w-[2ch]">{post.commentsCount > 0 ? post.commentsCount : ''}</span>
             </button>
 
-            <button 
-              onClick={handleShare}
-              aria-label="Share post"
-              className="group flex items-center gap-1 hover:text-green-500 transition-colors"
-            >
+            <button onClick={handleShare} aria-label="Share post"
+              className="group flex items-center gap-1 hover:text-green-500 transition-colors">
               <div className="p-2 group-hover:bg-green-500/10 rounded-full transition-colors">
                 <Share2 className="w-5 h-5 transition-transform duration-150 group-active:scale-95" />
               </div>
             </button>
 
-            <button 
-              onClick={handleSave}
-              disabled={isSaving}
-              aria-label={isSaved ? "Remove bookmark" : "Bookmark post"}
-              className={cn(
-                "group flex items-center gap-1 transition-colors disabled:opacity-50",
-                isSaved ? "text-primary" : "hover:text-primary"
-              )}
-            >
+            <button onClick={handleSave} disabled={isSaving} aria-label={isSaved ? 'Remove bookmark' : 'Bookmark post'}
+              className={cn('group flex items-center gap-1 transition-colors disabled:opacity-50', isSaved ? 'text-primary' : 'hover:text-primary')}>
               <div className="p-2 group-hover:bg-primary/10 rounded-full transition-colors">
-                <Bookmark className={cn("w-5 h-5 transition-transform duration-150", isSaved && "fill-current", isSaving && "scale-110")} />
+                <Bookmark className={cn('w-5 h-5 transition-transform duration-150', isSaved && 'fill-current', isSaving && 'scale-110')} />
               </div>
             </button>
           </div>
