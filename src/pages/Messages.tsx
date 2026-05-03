@@ -42,7 +42,7 @@ import {
   BellOff,
   Flag,
   Trash,
-  Gif,
+  FileImage,
   ExternalLink,
   BarChart2,
   HelpCircle,
@@ -240,7 +240,7 @@ const SharedPostCard: React.FC<SharedPostCardProps> = ({ post, isOwn }) => {
   const getTypeLabel = () => {
     if (post.type === 'poll') return { label: 'Poll', icon: <BarChart2 className="w-3 h-3" />, color: 'text-blue-500' };
     if (post.type === 'quiz') return { label: 'Quiz', icon: <HelpCircle className="w-3 h-3" />, color: 'text-purple-500' };
-    if (post.type === 'gif') return { label: 'GIF Post', icon: <Gif className="w-3 h-3" />, color: 'text-green-500' };
+    if (post.type === 'gif') return { label: 'GIF Post', icon: <FileImage className="w-3 h-3" />, color: 'text-green-500' };
     return null;
   };
 
@@ -903,7 +903,7 @@ export const Messages: React.FC = () => {
                       className={cn('p-2 rounded-full transition-colors', showDmGifPicker || dmGifUrl ? 'text-green-500 bg-green-500/10' : 'text-muted-foreground hover:text-green-500 hover:bg-green-500/10')}
                       title="Send GIF"
                     >
-                      <Gif className="w-6 h-6" />
+                      <FileImage className="w-6 h-6" />
                     </button>
                     <input type="text" value={messageText} onChange={handleTyping} placeholder="Message…" className="flex-1 bg-accent border border-border rounded-full py-3 px-5 focus:border-primary outline-none text-foreground placeholder:text-muted-foreground text-sm" />
                     <button type="submit" disabled={isSending || (!messageText.trim() && !dmGifUrl)} className="p-3 bg-primary text-primary-foreground rounded-full disabled:opacity-40 hover:opacity-90 transition-all">
