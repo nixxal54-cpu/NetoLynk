@@ -1,6 +1,6 @@
 import React, { useRef, useCallback, useEffect, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { Home, Search, Bell, Mail, User, PlusSquare, LogOut, Sun, Moon, Film, FileText } from 'lucide-react';
+import { Home, Search, Bell, Mail, User, PlusSquare, LogOut, Sun, Moon, Film, FileText, Zap } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { auth, db } from '../../lib/firebase';
@@ -75,6 +75,17 @@ function CreateDropdown({ onClose }: { onClose: () => void }) {
       <div className="fixed inset-0 z-40" onClick={onClose} />
       {/* Menu */}
       <div className="absolute top-full left-0 mt-2 z-50 bg-card border border-border rounded-2xl shadow-xl overflow-hidden min-w-[180px] animate-in fade-in slide-in-from-top-2 duration-150">
+        <button
+          onClick={() => go('/create-blink')}
+          className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-accent transition-colors text-left"
+        >
+          <Zap className="w-5 h-5 text-primary" />
+          <div>
+            <p className="font-semibold text-sm">Add Blink</p>
+            <p className="text-xs text-muted-foreground">Disappears in 24 hours</p>
+          </div>
+        </button>
+        <div className="h-px bg-border mx-3" />
         <button
           onClick={() => go('/create')}
           className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-accent transition-colors text-left"
