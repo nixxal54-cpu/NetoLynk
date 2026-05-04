@@ -9,7 +9,7 @@
  *  - Swipe-up to close
  */
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { X, ChevronLeft, Send, Trash2 } from 'lucide-react';
+import { X, ChevronLeft, Send, Trash2, Music2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../../context/AuthContext';
 import { UserBlinks, Blink } from '../../types/blink';
@@ -65,6 +65,7 @@ export const BlinkViewer: React.FC<BlinkViewerProps> = ({
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const progressRef = useRef(0);
   const startTimeRef = useRef<number>(Date.now());
 
@@ -104,6 +105,16 @@ export const BlinkViewer: React.FC<BlinkViewerProps> = ({
     progressRef.current = 0;
     startTimeRef.current = Date.now();
 
+    // Play blink music if present
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    if (blink.musicUrl) {
+      const audio = new Audio(blink.musicUrl);
+      audio.loop = true;
+      audio.volume = 0.6;
+      audio.play().catch(() => {});
+      audioRef.current = audio;
+    }
+
     if (blink.type === 'image') {
       stopTimer();
       const TICK = 50;
@@ -117,7 +128,7 @@ export const BlinkViewer: React.FC<BlinkViewerProps> = ({
       }, TICK);
     }
 
-    return () => stopTimer();
+    return () => { stopTimer(); audioRef.current?.pause(); };
   }, [blink?.id, paused]);
 
   // For video: drive progress bar from video timeupdate
@@ -135,11 +146,13 @@ export const BlinkViewer: React.FC<BlinkViewerProps> = ({
   const handlePause = () => {
     setPaused(true);
     if (videoRef.current) videoRef.current.pause();
+    if (audioRef.current) audioRef.current.pause();
   };
   const handleResume = () => {
     setPaused(false);
     startTimeRef.current = Date.now() - (progressRef.current / 100) * IMAGE_DURATION;
     if (videoRef.current) videoRef.current.play();
+    if (audioRef.current) audioRef.current.play().catch(() => {});
   };
 
   const handleReaction = async (emoji: string) => {
@@ -160,6 +173,9 @@ export const BlinkViewer: React.FC<BlinkViewerProps> = ({
     await deleteBlink(blink.id);
     goNext();
   };
+
+  // Stop music when viewer unmounts
+  useEffect(() => () => { audioRef.current?.pause(); }, []);
 
   if (!blink) return null;
 
@@ -268,12 +284,18 @@ export const BlinkViewer: React.FC<BlinkViewerProps> = ({
         {/* Text overlay */}
         {blink.textOverlay && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20 px-6">
-            <p
-              className="text-center font-bold text-2xl drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)] leading-tight"
-              style={{ color: blink.textOverlayColor ?? '#ffffff' }}
-            >
+            <p className="text-center font-bold text-2xl drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)] leading-tight"
+              style={{ color: blink.textOverlayColor ?? '#ffffff' }}>
               {blink.textOverlay}
             </p>
+          </div>
+        )}
+
+        {/* Music badge */}
+        {blink.musicTitle && (
+          <div className="absolute top-4 left-4 z-20 flex items-center gap-1.5 bg-black/50 backdrop-blur-md rounded-full px-3 py-1 border border-white/10 pointer-events-none">
+            <Music2 className="w-3 h-3 text-white animate-pulse flex-shrink-0" />
+            <span className="text-white text-[11px] font-medium truncate max-w-[160px]">{blink.musicTitle}</span>
           </div>
         )}
 
