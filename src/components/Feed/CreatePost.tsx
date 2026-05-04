@@ -170,33 +170,36 @@ export const CreatePost: React.FC<CreatePostProps> = ({ onPostCreated }) => {
 
   const avatarSrc = user?.profileImage || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.username}`;
 
-  const MODE_TABS: { key: PostMode; label: string; Icon: React.FC<any>; color: string }[] = [
-    { key: 'text', label: 'Post', Icon: Send, color: 'text-primary' },
-    { key: 'poll', label: 'Poll', Icon: BarChart2, color: 'text-blue-500' },
-    { key: 'quiz', label: 'Quiz', Icon: HelpCircle, color: 'text-purple-500' },
-    { key: 'gif', label: 'GIF', Icon: FileImage, color: 'text-green-500' },
+  const MODE_TABS: { key: PostMode; label: string; Icon: React.FC<any>; activeClass: string; iconClass: string }[] = [
+    { key: 'text',  label: 'Post', Icon: Send,       activeClass: 'bg-primary text-primary-foreground shadow-sm',        iconClass: 'text-primary' },
+    { key: 'poll',  label: 'Poll', Icon: BarChart2,  activeClass: 'bg-blue-500 text-white shadow-sm',                    iconClass: 'text-blue-500' },
+    { key: 'quiz',  label: 'Quiz', Icon: HelpCircle, activeClass: 'bg-purple-500 text-white shadow-sm',                  iconClass: 'text-purple-500' },
+    { key: 'gif',   label: 'GIF',  Icon: FileImage,  activeClass: 'bg-green-500 text-white shadow-sm',                   iconClass: 'text-green-500' },
   ];
 
   return (
     <div className="p-4 border-b border-border">
       {/* Mode tabs */}
-      <div className="flex gap-1 mb-3">
-        {MODE_TABS.map(({ key, label, Icon, color }) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => { setPostMode(key); setSelectedGif(null); }}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all',
-              postMode === key
-                ? 'bg-primary/10 text-primary border border-primary/30'
-                : 'text-muted-foreground hover:bg-accent border border-transparent'
-            )}
-          >
-            <Icon className={cn('w-3.5 h-3.5', postMode === key ? 'text-primary' : color)} />
-            {label}
-          </button>
-        ))}
+      <div className="mb-3">
+        <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground mb-2 pl-0.5">Post type</p>
+        <div className="flex gap-2">
+          {MODE_TABS.map(({ key, label, Icon, activeClass, iconClass }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => { setPostMode(key); setSelectedGif(null); }}
+              className={cn(
+                'flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold transition-all border',
+                postMode === key
+                  ? activeClass + ' border-transparent scale-105'
+                  : 'text-muted-foreground bg-accent/50 border-border hover:bg-accent'
+              )}
+            >
+              <Icon className={cn('w-4 h-4', postMode === key ? 'opacity-90' : iconClass)} />
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="flex gap-3">
