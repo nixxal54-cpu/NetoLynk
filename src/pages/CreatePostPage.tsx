@@ -299,9 +299,7 @@ export const CreatePostPage: React.FC = () => {
                   )}
                   <AnimatePresence>
                     {showGifPicker && (
-                      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="mt-3 z-50">
-                        <GifPicker onSelect={(url) => { setSelectedGif(url); setShowGifPicker(false); }} onClose={() => setShowGifPicker(false)} />
-                      </motion.div>
+                      <GifPicker onSelect={(url) => { setSelectedGif(url); setShowGifPicker(false); }} onClose={() => setShowGifPicker(false)} />
                     )}
                   </AnimatePresence>
                 </motion.div>
