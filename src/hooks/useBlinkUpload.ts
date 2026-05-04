@@ -45,6 +45,8 @@ export function useBlinkUpload() {
     textOverlayColor: '#ffffff',
     caption: '',
     previewUrl: null as string | null,
+    musicUrl: null as string | null,
+    musicTitle: null as string | null,
   });
 
   const selectFile = useCallback((file: File) => {
@@ -96,9 +98,14 @@ export function useBlinkUpload() {
     setState(s => ({ ...s, caption }));
   }, []);
 
+  const setMusic = useCallback((musicUrl: string | null, musicTitle: string | null) => {
+    uploadDataRef.current.musicUrl = musicUrl;
+    uploadDataRef.current.musicTitle = musicTitle;
+  }, []);
+
   // publish() depends only on `user` — never on `state`
   const publish = useCallback(async (): Promise<boolean> => {
-    const { file, type, textOverlay, textOverlayColor, caption } = uploadDataRef.current;
+    const { file, type, textOverlay, textOverlayColor, caption, musicUrl, musicTitle } = uploadDataRef.current;
 
     if (!user || !file || !type) return false;
 
@@ -145,8 +152,8 @@ export function useBlinkUpload() {
         caption: caption.trim() || null,
         textOverlay: textOverlay.trim() || null,
         textOverlayColor,
-        musicUrl: null,
-        musicTitle: null,
+        musicUrl: musicUrl ?? null,
+        musicTitle: musicTitle ?? null,
         viewsCount: 0,
         viewedBy: [],
         createdAt: now.toISOString(),
@@ -173,9 +180,10 @@ export function useBlinkUpload() {
     uploadDataRef.current = {
       file: null, type: null, textOverlay: '',
       textOverlayColor: '#ffffff', caption: '', previewUrl: null,
+      musicUrl: null, musicTitle: null,
     };
     setState(INITIAL_STATE);
   }, []);
 
-  return { state, selectFile, setTextOverlay, setTextOverlayColor, setCaption, publish, reset };
+  return { state, selectFile, setTextOverlay, setTextOverlayColor, setCaption, setMusic, publish, reset };
 }
