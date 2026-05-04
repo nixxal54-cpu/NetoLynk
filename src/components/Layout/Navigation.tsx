@@ -1,46 +1,31 @@
-import React, { useRef, useCallback, useEffect } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
-import { Home, Search, Bell, Mail, User, PlusSquare, LogOut, Sun, Moon } from 'lucide-react';
+import React, { useRef, useCallback, useEffect, useState } from 'react';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
+import { Home, Search, Bell, Mail, User, PlusSquare, LogOut, Sun, Moon, Film } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { auth, db } from '../../lib/firebase';
 import { cn } from '../../lib/utils';
 import { useAccountSwitcher } from '../../context/AccountSwitcherContext';
 import { collection, query, where, onSnapshot, limit } from 'firebase/firestore';
-import { useState } from 'react';
 
-// Long-press duration in ms
 const LONG_PRESS_MS = 500;
 
 function useLongPress(onLongPress: () => void, onClick?: () => void) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const didFire = useRef(false);
+  const didFire  = useRef(false);
 
-  const start = useCallback((e: React.TouchEvent | React.MouseEvent) => {
+  const start = useCallback(() => {
     didFire.current = false;
-    timerRef.current = setTimeout(() => {
-      didFire.current = true;
-      onLongPress();
-    }, LONG_PRESS_MS);
+    timerRef.current = setTimeout(() => { didFire.current = true; onLongPress(); }, LONG_PRESS_MS);
   }, [onLongPress]);
 
-  const cancel = useCallback(() => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-  }, []);
-
-  const handleClick = useCallback(() => {
-    if (!didFire.current && onClick) onClick();
-  }, [onClick]);
+  const cancel = useCallback(() => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+  const handleClick = useCallback(() => { if (!didFire.current && onClick) onClick(); }, [onClick]);
 
   return {
-    onMouseDown: start,
-    onMouseUp: cancel,
-    onMouseLeave: cancel,
+    onMouseDown: start, onMouseUp: cancel, onMouseLeave: cancel,
     onTouchStart: start,
-    onTouchEnd: (e: React.TouchEvent) => {
-      cancel();
-      if (didFire.current) e.preventDefault();
-    },
+    onTouchEnd: (e: React.TouchEvent) => { cancel(); if (didFire.current) e.preventDefault(); },
     onClick: handleClick,
   };
 }
@@ -52,47 +37,15 @@ function useUnreadCounts() {
 
   useEffect(() => {
     if (!user) return;
-
-    // Unread messages: sum unreadCount across active chats (capped at 100)
-    const chatsQ = query(
-      collection(db, 'chats'),
-      where('participants', 'array-contains', user.uid),
-      limit(100)
-    );
+    const chatsQ = query(collection(db, 'chats'), where('participants', 'array-contains', user.uid), limit(100));
     const unsubChats = onSnapshot(chatsQ, (snap) => {
       let total = 0;
-      snap.docs.forEach((d) => {
-        const cnt = d.data()?.unreadCount?.[user.uid] ?? 0;
-        total += cnt;
-      });
+      snap.docs.forEach((d) => { total += d.data()?.unreadCount?.[user.uid] ?? 0; });
       setUnreadMessages(total);
     });
-
-    // Unread notifications: user-specific + system, not read
-    const notifUserQ = query(
-      collection(db, 'notifications'),
-      where('recipientId', '==', user.uid),
-      where('read', '==', false)
-    );
-    const notifSystemQ = query(
-      collection(db, 'notifications'),
-      where('recipientId', '==', 'all'),
-      where('read', '==', false)
-    );
-
-    const unsubNotifUser = onSnapshot(notifUserQ, (snap) => {
-      setUnreadNotifications((prev) => {
-        // We'll combine both in the system snap
-        return snap.size;
-      });
-    });
-
-    // Note: system notifications can't easily be marked per-user as read,
-    // so we just count them and show total personal unread only
-    return () => {
-      unsubChats();
-      unsubNotifUser();
-    };
+    const notifQ = query(collection(db, 'notifications'), where('recipientId', '==', user.uid), where('read', '==', false));
+    const unsubNotif = onSnapshot(notifQ, (snap) => setUnreadNotifications(snap.size));
+    return () => { unsubChats(); unsubNotif(); };
   }, [user?.uid]);
 
   return { unreadMessages, unreadNotifications };
@@ -107,6 +60,35 @@ function Badge({ count }: { count: number }) {
   );
 }
 
+// ─── Top Header Bar ────────────────────────────────────────────────────────────
+export const TopHeader: React.FC = () => {
+  const navigate = useNavigate();
+  const { unreadNotifications } = useUnreadCounts();
+
+  return (
+    <header className="md:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-3 bg-background/90 backdrop-blur-lg border-b border-border h-14">
+      {/* Left: Create */}
+      <button
+        onClick={() => navigate('/create')}
+        className="flex items-center gap-1 text-sm font-semibold text-primary"
+      >
+        <PlusSquare className="w-5 h-5" />
+        <span>Create</span>
+      </button>
+
+      {/* Center: Logo */}
+      <img src="/netolynk-logo.png" alt="NetoLynk" className="h-8 w-auto object-contain absolute left-1/2 -translate-x-1/2" />
+
+      {/* Right: Notifications */}
+      <NavLink to="/notifications" className="relative p-1">
+        <Bell className="w-6 h-6" />
+        <Badge count={unreadNotifications} />
+      </NavLink>
+    </header>
+  );
+};
+
+// ─── Sidebar (desktop) ─────────────────────────────────────────────────────────
 export const Sidebar: React.FC = () => {
   const { user } = useAuth();
   const { theme, toggleTheme } = useTheme();
@@ -114,22 +96,17 @@ export const Sidebar: React.FC = () => {
   const { openSwitcher, addCurrentAccount, currentUid } = useAccountSwitcher();
   const { unreadMessages, unreadNotifications } = useUnreadCounts();
 
-  useEffect(() => {
-    if (currentUid) addCurrentAccount(currentUid);
-  }, [currentUid, addCurrentAccount]);
+  useEffect(() => { if (currentUid) addCurrentAccount(currentUid); }, [currentUid, addCurrentAccount]);
 
   const navItems = [
-    { icon: Home, label: 'Home', path: '/', badge: 0 },
-    { icon: Search, label: 'Explore', path: '/explore', badge: 0 },
-    { icon: Bell, label: 'Notifications', path: '/notifications', badge: unreadNotifications },
-    { icon: Mail, label: 'Messages', path: '/messages', badge: unreadMessages },
-    { icon: User, label: 'Profile', path: `/profile/${user?.username}`, badge: 0 },
+    { icon: Home,  label: 'Home',          path: '/',                           badge: 0 },
+    { icon: Search,label: 'Search',         path: '/explore',                    badge: 0 },
+    { icon: Film,  label: 'Lynks',          path: '/lynks',                      badge: 0, accent: true },
+    { icon: Mail,  label: 'Messages',       path: '/messages',                   badge: unreadMessages },
+    { icon: User,  label: 'Profile',        path: `/profile/${user?.username}`,  badge: 0 },
   ];
 
-  const avatarLongPress = useLongPress(
-    openSwitcher,
-    () => navigate(`/profile/${user?.username}`)
-  );
+  const avatarLongPress = useLongPress(openSwitcher, () => navigate(`/profile/${user?.username}`));
 
   return (
     <aside className="hidden md:flex flex-col w-64 h-screen sticky top-0 border-r border-border p-4 bg-background">
@@ -137,23 +114,27 @@ export const Sidebar: React.FC = () => {
         <img src="/netolynk-logo.png" alt="NetoLynk" className="h-10 w-auto object-contain" />
       </div>
 
-      <nav className="flex-1 space-y-2">
+      <nav className="flex-1 space-y-1">
         {navItems.map((item) => (
           <NavLink
             key={item.path}
             to={item.path}
             className={({ isActive }) =>
               cn(
-                "flex items-center gap-4 px-4 py-3 rounded-xl transition-all hover:bg-accent group",
-                isActive ? "bg-accent text-primary font-bold" : "text-foreground/70"
+                'flex items-center gap-4 px-4 py-3 rounded-xl transition-all hover:bg-accent group',
+                isActive
+                  ? item.accent ? 'bg-primary/10 text-primary font-bold' : 'bg-accent text-primary font-bold'
+                  : 'text-foreground/70'
               )
             }
           >
             <span className="relative">
-              <item.icon className="w-6 h-6 group-hover:scale-110 transition-transform" />
+              <item.icon className={cn('w-6 h-6 group-hover:scale-110 transition-transform', item.accent && 'text-primary')} />
               <Badge count={item.badge} />
             </span>
-            <span className="text-lg">{item.label}</span>
+            <span className={cn('text-lg', item.accent && 'text-primary font-bold')}>
+              {item.label}
+            </span>
           </NavLink>
         ))}
 
@@ -163,6 +144,14 @@ export const Sidebar: React.FC = () => {
         >
           <PlusSquare className="w-6 h-6" />
           <span>Post</span>
+        </button>
+
+        <button
+          onClick={() => navigate('/create-lynk')}
+          className="w-full mt-2 flex items-center justify-center gap-2 border border-primary text-primary py-3 rounded-full font-bold hover:bg-primary/5 transition-colors"
+        >
+          <Film className="w-6 h-6" />
+          <span>Create Lynk</span>
         </button>
       </nav>
 
@@ -176,11 +165,7 @@ export const Sidebar: React.FC = () => {
         </button>
 
         <div className="flex items-center gap-3 px-4 py-3 border-t border-border pt-4">
-          <button
-            {...avatarLongPress}
-            className="relative flex-shrink-0 select-none"
-            title="Hold to switch account"
-          >
+          <button {...avatarLongPress} className="relative flex-shrink-0 select-none" title="Hold to switch account">
             <img
               src={user?.profileImage || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.username}`}
               alt="Profile"
@@ -201,68 +186,66 @@ export const Sidebar: React.FC = () => {
   );
 };
 
+// ─── Bottom Nav (mobile) — with centred Lynks button ──────────────────────────
 export const BottomNav: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const { openSwitcher, addCurrentAccount, currentUid } = useAccountSwitcher();
-  const { unreadMessages, unreadNotifications } = useUnreadCounts();
+  const { unreadMessages } = useUnreadCounts();
 
-  useEffect(() => {
-    if (currentUid) addCurrentAccount(currentUid);
-  }, [currentUid, addCurrentAccount]);
+  useEffect(() => { if (currentUid) addCurrentAccount(currentUid); }, [currentUid, addCurrentAccount]);
 
-  const profileLongPress = useLongPress(
-    openSwitcher,
-    () => navigate(`/profile/${user?.username}`)
-  );
+  const profileLongPress = useLongPress(openSwitcher, () => navigate(`/profile/${user?.username}`));
+
+  const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(path + '/');
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-background/90 backdrop-blur-lg border-t border-border flex items-center justify-around px-1 z-50 pb-[env(safe-area-inset-bottom)] h-[68px]">
-      <NavLink to="/" className={({ isActive }) => cn("p-2 transition-colors", isActive ? "text-primary" : "text-foreground/60")}>
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur-lg border-t border-border flex items-center justify-around px-1 z-50 pb-[env(safe-area-inset-bottom)] h-[68px]">
+
+      {/* Home */}
+      <NavLink to="/" end className={({ isActive }) => cn('p-2 transition-colors', isActive ? 'text-primary' : 'text-foreground/60')}>
         <Home className="w-6 h-6" />
       </NavLink>
-      <NavLink to="/explore" className={({ isActive }) => cn("p-2 transition-colors", isActive ? "text-primary" : "text-foreground/60")}>
+
+      {/* Search */}
+      <NavLink to="/explore" className={({ isActive }) => cn('p-2 transition-colors', isActive ? 'text-primary' : 'text-foreground/60')}>
         <Search className="w-6 h-6" />
       </NavLink>
 
-      <div className="relative -top-5">
-        <button
-          onClick={() => navigate('/create')}
-          className="p-3 bg-primary text-primary-foreground rounded-full shadow-xl active:scale-95 transition-transform flex items-center justify-center"
+      {/* ── LYNKS — centred, elevated ── */}
+      <div className="relative -top-5 flex flex-col items-center">
+        <NavLink
+          to="/lynks"
+          className={({ isActive }) =>
+            cn(
+              'flex flex-col items-center justify-center w-14 h-14 rounded-2xl shadow-xl transition-all active:scale-95',
+              isActive
+                ? 'bg-primary text-primary-foreground shadow-primary/40'
+                : 'bg-primary text-primary-foreground shadow-primary/30'
+            )
+          }
         >
-          <PlusSquare className="w-6 h-6" />
-        </button>
+          <Film className="w-7 h-7" />
+        </NavLink>
+        <span className="text-[10px] font-bold text-primary mt-1">Lynks</span>
       </div>
 
-      <NavLink to="/messages" className={({ isActive }) => cn("relative p-2 transition-colors", isActive ? "text-primary" : "text-foreground/60")}>
+      {/* Messages */}
+      <NavLink to="/messages" className={({ isActive }) => cn('relative p-2 transition-colors', isActive ? 'text-primary' : 'text-foreground/60')}>
         <Mail className="w-6 h-6" />
-        <Badge count={unreadMessages} />
+        {unreadMessages > 0 && <Badge count={unreadMessages} />}
       </NavLink>
 
-      <NavLink to="/notifications" className={({ isActive }) => cn("relative p-2 transition-colors hidden sm:block", isActive ? "text-primary" : "text-foreground/60")}>
-        <Bell className="w-6 h-6" />
-        <Badge count={unreadNotifications} />
-      </NavLink>
-
+      {/* Profile */}
       <button
         {...profileLongPress}
-        className={cn(
-          "p-1.5 transition-colors select-none rounded-full",
-          window.location.pathname.includes(user?.username ?? '__')
-            ? "text-primary"
-            : "text-foreground/60"
-        )}
+        className={cn('p-1.5 transition-colors select-none rounded-full', isActive(`/profile/${user?.username}`) ? 'text-primary' : 'text-foreground/60')}
       >
-        {user?.profileImage ? (
-          <img
-            src={user.profileImage}
-            alt="Profile"
-            className="w-7 h-7 rounded-full object-cover"
-            draggable={false}
-          />
-        ) : (
-          <User className="w-6 h-6" />
-        )}
+        {user?.profileImage
+          ? <img src={user.profileImage} alt="Profile" className="w-7 h-7 rounded-full object-cover" draggable={false} />
+          : <User className="w-6 h-6" />
+        }
       </button>
     </nav>
   );
