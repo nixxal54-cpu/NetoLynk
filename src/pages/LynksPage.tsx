@@ -21,7 +21,7 @@ export default function LynksPage() {
 
   return (
     // This page fills the entire available content area — black background for immersion
-    <div className="relative w-full bg-black overflow-hidden" style={{ height: 'calc(100dvh - 68px)' }}>
+    <div className="relative w-full bg-black overflow-hidden" style={{ height: '100dvh' }}>
 
       {/* Feed type toggle — pinned at top */}
       <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-center gap-1 pt-safe pt-3 pointer-events-none">
