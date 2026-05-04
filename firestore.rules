@@ -1,135 +1,227 @@
-// ===============================================================
-// 🔥 Lynks (FIXED + SECURE)
-// ===============================================================
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
 
-match /lynks/{lynkId} {
-  allow read: if true;
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
 
-  allow create: if isAuthenticated()
-    && request.resource.data.userId == request.auth.uid
-    && request.resource.data.duration >= 5
-    && request.resource.data.duration <= 60;
+    function isAuthenticated() { return request.auth != null; }
+    function isOwner(userId) { return isAuthenticated() && request.auth.uid == userId; }
+    function isDocOwner() { return isAuthenticated() && request.auth.uid == resource.data.userId; }
 
-  allow update: if isAuthenticated() &&
-                request.auth.uid == resource.data.userId;
+    function isValidEmail(email) { 
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"); 
+    }
 
-  allow delete: if false;
-}
+    function isValidUrl(url) { 
+      return url == null || (url is string && (url.matches("^https://.*") || url.matches("^http://.*"))); 
+    }
 
-match /lynkLikes/{likeId} {
-  allow read: if isAuthenticated();
-  allow write: if isAuthenticated()
-    && likeId == request.resource.data.lynkId + '_' + request.auth.uid;
-}
+    function isAdmin() { 
+      return isAuthenticated() && request.auth.token.role == 'admin'; 
+    }
 
-match /lynkComments/{commentId} {
-  allow read: if true;
+    // ===============================================================
+    // Users
+    // ===============================================================
 
-  allow create: if isAuthenticated()
-    && request.resource.data.userId == request.auth.uid
-    && request.resource.data.text.size() <= 500;
+    match /users/{userId} {
+      allow read: if isAuthenticated();
 
-  allow delete: if isAuthenticated()
-    && resource.data.userId == request.auth.uid;
-}
+      allow create: if isOwner(userId);
 
-match /lynkViews/{viewId} {
-  allow read, write: if isAuthenticated();
-}
+      allow update: if isOwner(userId);
 
-match /watchTimeLogs/{logId} {
-  allow read: if isAuthenticated();
+      allow delete: if false;
+    }
 
-  allow create: if isAuthenticated()
-    && request.resource.data.userId == request.auth.uid;
-}
+    // ===============================================================
+    // Posts
+    // ===============================================================
 
-match /lynkSaves/{saveId} {
-  allow read, write: if isAuthenticated();
-}
+    match /posts/{postId} {
+      allow read: if isAuthenticated();
 
-match /lynkReports/{reportId} {
-  allow read: if false;
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid;
 
-  allow create: if isAuthenticated()
-    && request.resource.data.userId == request.auth.uid;
-}
+      allow update: if isDocOwner();
 
+      allow delete: if isDocOwner();
 
-// ===============================================================
-// ⚡ Blinks (MERGED + SECURE)
-// ===============================================================
+      match /comments/{commentId} {
+        allow read: if isAuthenticated();
 
-match /blinks/{blinkId} {
+        allow create: if isAuthenticated() &&
+          request.resource.data.userId == request.auth.uid &&
+          request.resource.data.text is string &&
+          request.resource.data.text.size() <= 1000;
 
-  allow read: if isAuthenticated() &&
-              request.time < resource.data.expiresAt;
+        allow delete: if isAuthenticated() &&
+          resource.data.userId == request.auth.uid;
+      }
+    }
 
-  allow create: if isAuthenticated() &&
-    request.resource.data.userId == request.auth.uid &&
-    request.resource.data.mediaUrl is string &&
-    request.resource.data.type in ['image', 'video'] &&
-    request.resource.data.expiresAt is timestamp &&
-    request.resource.data.expiresAt > request.time &&
-    request.resource.data.viewsCount == 0 &&
-    request.resource.data.viewedBy is list &&
-    request.resource.data.viewedBy.size() == 0;
+    // ===============================================================
+    // Chats
+    // ===============================================================
 
-  allow delete: if isDocOwner();
+    match /chats/{chatId} {
+      allow read: if isAuthenticated() &&
+        request.auth.uid in resource.data.participants;
 
-  allow update: if isAuthenticated() && (
+      allow create: if isAuthenticated() &&
+        request.resource.data.participants is list &&
+        request.auth.uid in request.resource.data.participants &&
+        request.resource.data.participants.size() <= 2;
 
-    // Owner full control (except userId change)
-    (
-      isDocOwner() &&
-      request.resource.data.userId == resource.data.userId
-    )
+      allow update: if isAuthenticated() &&
+        request.auth.uid in resource.data.participants;
 
-    ||
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() &&
+          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
 
-    // Secure view tracking
-    (
-      request.resource.data.diff(resource.data).affectedKeys()
-        .hasOnly(['viewedBy', 'viewsCount']) &&
+        allow create: if isAuthenticated() &&
+          request.resource.data.senderId == request.auth.uid &&
+          request.resource.data.text is string;
+      }
+    }
 
-      request.resource.data.viewedBy is list &&
+    // ===============================================================
+    // Notifications
+    // ===============================================================
 
-      request.resource.data.viewedBy.size() ==
-        resource.data.viewedBy.size() + 1 &&
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() &&
+        resource.data.recipientId == request.auth.uid;
 
-      request.resource.data.viewedBy.hasAll(resource.data.viewedBy) &&
+      allow create: if isAuthenticated() &&
+        request.resource.data.senderId == request.auth.uid;
 
-      request.auth.uid in request.resource.data.viewedBy &&
+      allow update: if isAuthenticated() &&
+        resource.data.recipientId == request.auth.uid;
 
-      !(request.auth.uid in resource.data.viewedBy) &&
+      allow delete: if isAuthenticated() &&
+        resource.data.recipientId == request.auth.uid;
+    }
 
-      request.resource.data.viewsCount ==
-        resource.data.viewsCount + 1
-    )
-  );
+    // ===============================================================
+    // Reviews
+    // ===============================================================
 
-  // ── Reactions ──
-  match /reactions/{reactionId} {
-    allow read: if isAuthenticated();
+    match /reviews/{reviewId} {
+      allow read: if isAuthenticated();
 
-    allow create: if isAuthenticated() &&
-      request.resource.data.userId == request.auth.uid &&
-      request.resource.data.type in ['like', 'love', 'haha', 'wow', 'sad'];
+      allow create: if isAuthenticated() &&
+        request.resource.data.uid == request.auth.uid;
 
-    allow delete: if isAuthenticated() &&
-      resource.data.userId == request.auth.uid;
-  }
+      allow delete: if isAuthenticated() &&
+        request.auth.uid == resource.data.uid;
 
-  // ── Replies ──
-  match /replies/{replyId} {
-    allow read: if isAuthenticated();
+      allow update: if false;
+    }
 
-    allow create: if isAuthenticated() &&
-      request.resource.data.senderId == request.auth.uid &&
-      request.resource.data.text is string &&
-      request.resource.data.text.size() <= 1000;
+    // ===============================================================
+    // Analytics (STRICT)
+    // ===============================================================
 
-    allow delete: if isAuthenticated() &&
-      resource.data.senderId == request.auth.uid;
+    match /analytics_events/{eventId} {
+      allow create: if isAuthenticated();
+      allow read: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    match /analytics_daily/{dateId} {
+      allow read, write: if isAdmin();
+    }
+
+    // ===============================================================
+    // Lynks
+    // ===============================================================
+
+    match /lynks/{lynkId} {
+      allow read: if true;
+
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid;
+
+      allow update: if isDocOwner();
+      allow delete: if false;
+    }
+
+    // ===============================================================
+    // ⚡ Blinks (Stories Feature - SECURE)
+    // ===============================================================
+
+    match /blinks/{blinkId} {
+
+      allow read: if isAuthenticated() &&
+        request.time < resource.data.expiresAt;
+
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.mediaUrl is string &&
+        request.resource.data.type in ['image', 'video'] &&
+        request.resource.data.expiresAt is timestamp &&
+        request.resource.data.expiresAt > request.time &&
+        request.resource.data.viewsCount == 0 &&
+        request.resource.data.viewedBy is list &&
+        request.resource.data.viewedBy.size() == 0;
+
+      allow delete: if isDocOwner();
+
+      allow update: if isAuthenticated() && (
+
+        isDocOwner()
+
+        ||
+
+        (
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['viewedBy', 'viewsCount']) &&
+
+          request.resource.data.viewedBy is list &&
+
+          request.resource.data.viewedBy.size() ==
+            resource.data.viewedBy.size() + 1 &&
+
+          request.resource.data.viewedBy.hasAll(resource.data.viewedBy) &&
+
+          request.auth.uid in request.resource.data.viewedBy &&
+
+          !(request.auth.uid in resource.data.viewedBy) &&
+
+          request.resource.data.viewsCount ==
+            resource.data.viewsCount + 1
+        )
+      );
+
+      // Reactions
+      match /reactions/{reactionId} {
+        allow read: if isAuthenticated();
+
+        allow create: if isAuthenticated() &&
+          request.resource.data.userId == request.auth.uid;
+
+        allow delete: if isAuthenticated() &&
+          resource.data.userId == request.auth.uid;
+      }
+
+      // Replies
+      match /replies/{replyId} {
+        allow read: if isAuthenticated();
+
+        allow create: if isAuthenticated() &&
+          request.resource.data.senderId == request.auth.uid &&
+          request.resource.data.text is string &&
+          request.resource.data.text.size() <= 1000;
+
+        allow delete: if isAuthenticated() &&
+          resource.data.senderId == request.auth.uid;
+      }
+    }
+
   }
 }
