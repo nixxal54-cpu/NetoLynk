@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
 import { Film, Upload, X, ChevronLeft, Loader2 } from 'lucide-react';
 import { useLynkUpload } from '../hooks/useLynkUpload';
-import { createLynk } from '../../lib/lynkService';
+import { createLynk } from '../lib/lynkService';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'sonner';
 import { motion } from 'motion/react';
