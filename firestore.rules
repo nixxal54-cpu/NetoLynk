@@ -166,3 +166,56 @@ service cloud.firestore {
 
   }
 }
+
+    // ── Lynks ──────────────────────────────────────────────────────────
+    match /lynks/{lynkId} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.duration >= 5
+        && request.resource.data.duration <= 60;
+      allow update: if request.auth != null && (
+        // Owner can soft-delete
+        (resource.data.userId == request.auth.uid)
+        // System increments (likes, views, etc.) from authenticated users
+        || request.auth != null
+      );
+      allow delete: if false; // soft-delete only
+    }
+
+    match /lynkLikes/{likeId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && likeId == request.resource.data.lynkId + '_' + request.auth.uid;
+    }
+
+    match /lynkComments/{commentId} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.text.size() <= 500;
+      allow delete: if request.auth != null
+        && resource.data.userId == request.auth.uid;
+    }
+
+    match /lynkViews/{viewId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+    match /watchTimeLogs/{logId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid;
+    }
+
+    match /lynkSaves/{saveId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+    match /lynkReports/{reportId} {
+      allow read: if false; // admin only
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid;
+    }
