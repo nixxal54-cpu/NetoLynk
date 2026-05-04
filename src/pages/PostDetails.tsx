@@ -279,9 +279,7 @@ export const PostDetails: React.FC = () => {
           <div className="relative">
             <AnimatePresence>
               {showGifPicker && (
-                <m2.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} className="absolute bottom-full mb-2 left-0 right-0 z-50">
-                  <GifPicker onSelect={(url) => { setCommentGif(url); setShowGifPicker(false); }} onClose={() => setShowGifPicker(false)} />
-                </m2.div>
+                <GifPicker onSelect={(url) => { setCommentGif(url); setShowGifPicker(false); }} onClose={() => setShowGifPicker(false)} />
               )}
             </AnimatePresence>
 
