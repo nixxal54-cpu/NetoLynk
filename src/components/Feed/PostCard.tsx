@@ -53,15 +53,13 @@ const PollCard: React.FC<{ post: Post }> = ({ post }) => {
   const { user } = useAuth();
   const [options, setOptions] = useState<PollOption[]>(post.pollOptions || []);
   const [voting, setVoting] = useState(false);
-  const [hasVoted, setHasVoted] = useState(false);
-
-  useEffect(() => {
-    if (user && options.some(o => o.votedBy?.includes(user.uid))) {
-      setHasVoted(true);
-    }
-  }, [user, options]);
+  const [hasVoted, setHasVoted] = useState(() =>
+    !!(user && (post.pollOptions || []).some(o => o.votedBy?.includes(user.uid)))
+  );
 
   const totalVotes = options.reduce((sum, o) => sum + (o.votes || 0), 0);
+  // unique voters = union of all votedBy arrays
+  const totalVoters = new Set(options.flatMap(o => o.votedBy || [])).size;
 
   const handleVote = async (optionId: string) => {
     if (!user || hasVoted || voting) return;
@@ -136,7 +134,10 @@ const PollCard: React.FC<{ post: Post }> = ({ post }) => {
           );
         })}
       </div>
-      <p className="text-xs text-muted-foreground mt-3">{totalVotes} vote{totalVotes !== 1 ? 's' : ''}</p>
+      <p className="text-xs text-muted-foreground mt-3 flex items-center gap-1">
+        <BarChart2 className="w-3 h-3" />
+        <span><strong>{totalVoters}</strong> {totalVoters === 1 ? 'person' : 'people'} voted</span>
+      </p>
     </div>
   );
 };
@@ -146,13 +147,43 @@ const PollCard: React.FC<{ post: Post }> = ({ post }) => {
 // ----------------------------------------------------------------------------
 const QuizCard: React.FC<{ post: Post }> = ({ post }) => {
   const { user } = useAuth();
-  const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
-  const [revealed, setRevealed] = useState(false);
 
-  const handleAnswer = (optId: string, isCorrect: boolean) => {
-    if (revealed || !user) return;
+  // Restore saved answer from quizOptions.answeredBy
+  const getSavedAnswer = () => {
+    if (!user) return null;
+    for (const opt of (post.quizOptions || [])) {
+      if (opt.answeredBy?.includes(user.uid)) return opt.id;
+    }
+    return null;
+  };
+
+  const [selectedAnswer, setSelectedAnswer] = useState<string | null>(getSavedAnswer);
+  const [revealed, setRevealed] = useState(() => !!getSavedAnswer());
+  const [saving, setSaving] = useState(false);
+  const [quizOptions, setQuizOptions] = useState(post.quizOptions || []);
+
+  // Total unique answerers across all options
+  const totalAnswered = new Set(quizOptions.flatMap(o => o.answeredBy || [])).size;
+
+  const handleAnswer = async (optId: string) => {
+    if (revealed || !user || saving) return;
+    setSaving(true);
     setSelectedAnswer(optId);
     setRevealed(true);
+
+    const updatedOptions = quizOptions.map(o => ({
+      ...o,
+      answeredBy: o.id === optId ? [...(o.answeredBy || []), user.uid] : (o.answeredBy || []),
+    }));
+    setQuizOptions(updatedOptions);
+
+    try {
+      await updateDoc(doc(db, 'posts', post.id), { quizOptions: updatedOptions });
+    } catch {
+      toast.error("Couldn't save your answer");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -163,18 +194,17 @@ const QuizCard: React.FC<{ post: Post }> = ({ post }) => {
       </div>
       <p className="font-bold text-[15px] mb-3">{post.quizQuestion}</p>
       <div className="grid grid-cols-1 gap-2">
-        {(post.quizOptions || []).map((opt) => {
+        {quizOptions.map((opt) => {
           const isSelected = selectedAnswer === opt.id;
-          const showResult = revealed;
           let btnClass = 'border-2 border-border bg-background';
-          if (showResult && opt.isCorrect) btnClass = 'border-2 border-green-500 bg-green-500/10';
-          else if (showResult && isSelected && !opt.isCorrect) btnClass = 'border-2 border-red-500 bg-red-500/10';
+          if (revealed && opt.isCorrect) btnClass = 'border-2 border-green-500 bg-green-500/10';
+          else if (revealed && isSelected && !opt.isCorrect) btnClass = 'border-2 border-red-500 bg-red-500/10';
 
           return (
             <button
               key={opt.id}
-              onClick={(e) => { e.stopPropagation(); handleAnswer(opt.id, opt.isCorrect); }}
-              disabled={revealed || !user}
+              onClick={(e) => { e.stopPropagation(); handleAnswer(opt.id); }}
+              disabled={revealed || !user || saving}
               className={cn(
                 'w-full text-left rounded-xl px-4 py-2.5 text-sm font-medium transition-all flex items-center justify-between gap-2',
                 btnClass,
@@ -182,8 +212,8 @@ const QuizCard: React.FC<{ post: Post }> = ({ post }) => {
               )}
             >
               <span>{opt.text}</span>
-              {showResult && opt.isCorrect && <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />}
-              {showResult && isSelected && !opt.isCorrect && <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />}
+              {revealed && opt.isCorrect && <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />}
+              {revealed && isSelected && !opt.isCorrect && <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />}
             </button>
           );
         })}
@@ -197,8 +227,12 @@ const QuizCard: React.FC<{ post: Post }> = ({ post }) => {
           💡 {post.quizExplanation}
         </motion.div>
       )}
+      <p className="text-xs text-muted-foreground mt-3 flex items-center gap-1">
+        <HelpCircle className="w-3 h-3" />
+        <span><strong>{totalAnswered}</strong> {totalAnswered === 1 ? 'person' : 'people'} answered</span>
+      </p>
       {!user && (
-        <p className="text-xs text-muted-foreground mt-2">Sign in to answer</p>
+        <p className="text-xs text-muted-foreground mt-1">Sign in to answer</p>
       )}
     </div>
   );
