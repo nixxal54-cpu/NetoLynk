@@ -9,22 +9,18 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useInfiniteFeed } from '../hooks/useInfiniteScroll';
 import { useAuth } from '../context/AuthContext';
+import { BlinkBar } from '../components/Blinks/BlinkBar';
+import { BlinkViewer } from '../components/Blinks/BlinkViewer';
+import { useBlinks } from '../hooks/useBlinks';
+import { UserBlinks } from '../types/blink';
 
 // --- GRAVITY ALGORITHM ---
-// Calculates how "viral" a post is based on engagement vs. time
 const calculatePostScore = (post: Post) => {
   const likes = post.likesCount || 0;
   const comments = post.commentsCount || 0;
   const shares = post.sharesCount || 0;
-  
-  // 1 Like = 1 point, 1 Comment = 3 points, 1 Share = 5 points
   const engagementScore = (likes * 1) + (comments * 3) + (shares * 5);
-  
-  // Calculate age in hours
   const hoursAge = (Date.now() - new Date(post.createdAt).getTime()) / (1000 * 60 * 60);
-  
-  // Gravity formula: Engagement / (Age + 2)^1.5
-  // This makes sure 100 likes today ranks higher than 100 likes last week!
   return engagementScore / Math.pow(hoursAge + 2, 1.5);
 };
 
@@ -34,6 +30,31 @@ export const Home: React.FC = () => {
   const [activeFeed, setActiveFeed] = useState<'for-you' | 'following' | 'vibes'>('for-you');
   const { data: posts, loading, loadingMore, hasMore, fetchMore } = useInfiniteFeed<Post>('posts');
   const sentinelRef = useRef<HTMLDivElement>(null);
+
+  // ── Blinks ──
+  const { grouped: blinkGroups, loading: blinksLoading } = useBlinks();
+  const [viewerEntry, setViewerEntry] = useState<{ group: UserBlinks; startIdx: number; groupIdx: number } | null>(null);
+
+  const openViewer = (group: UserBlinks, startIdx = 0) => {
+    const groupIdx = blinkGroups.findIndex(g => g.userId === group.userId);
+    setViewerEntry({ group, startIdx, groupIdx });
+  };
+
+  const closeViewer = () => setViewerEntry(null);
+
+  const goNextUser = () => {
+    if (!viewerEntry) return;
+    const next = blinkGroups[viewerEntry.groupIdx + 1];
+    if (next) setViewerEntry({ group: next, startIdx: 0, groupIdx: viewerEntry.groupIdx + 1 });
+    else closeViewer();
+  };
+
+  const goPrevUser = () => {
+    if (!viewerEntry) return;
+    const prev = blinkGroups[viewerEntry.groupIdx - 1];
+    if (prev) setViewerEntry({ group: prev, startIdx: 0, groupIdx: viewerEntry.groupIdx - 1 });
+    else closeViewer();
+  };
 
   useEffect(() => {
     const sentinel = sentinelRef.current;
@@ -46,105 +67,116 @@ export const Home: React.FC = () => {
     return () => observer.disconnect();
   }, [hasMore, loadingMore, fetchMore]);
 
-  // Memoize the sorted feeds so it doesn't recalculate on every render
   const displayedPosts = useMemo(() => {
-    if (activeFeed === 'vibes') {
-      return posts.filter(p => p.mood);
-    }
-    if (activeFeed === 'following') {
-      return posts.filter(p => user?.following?.includes(p.userId));
-    }
-    if (activeFeed === 'for-you') {
-      // Sort posts using our Algorithmic Gravity Score
-      return [...posts].sort((a, b) => calculatePostScore(b) - calculatePostScore(a));
-    }
+    if (activeFeed === 'vibes') return posts.filter(p => p.mood);
+    if (activeFeed === 'following') return posts.filter(p => user?.following?.includes(p.userId));
+    if (activeFeed === 'for-you') return [...posts].sort((a, b) => calculatePostScore(b) - calculatePostScore(a));
     return posts;
   }, [posts, activeFeed, user?.following]);
 
   const vibeRooms = ['Hyped', 'Peaceful', 'Frustrated', 'Dead inside'];
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-      className="flex-1 max-w-2xl border-x border-border min-h-screen pb-20 md:pb-0">
-      <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-md border-b border-border">
-        <div className="p-4 hidden md:flex items-center justify-between">
-          <span style={{ fontFamily: "'Inter', 'SF Pro Display', -apple-system, sans-serif", fontWeight: 700, letterSpacing: "0.18em", fontSize: "1.0rem" }} className="text-foreground uppercase">NETOLYNK</span>
-          <Sparkles className="w-5 h-5 text-primary animate-pulse" />
-        </div>
-        <div className="flex w-full overflow-x-auto scrollbar-hide">
-          {(['for-you', 'following', 'vibes'] as const).map(tab => (
-            <button key={tab} onClick={() => setActiveFeed(tab)}
-              className="flex-1 min-w-[100px] py-4 font-bold transition-colors relative hover:bg-accent/50 text-sm md:text-base whitespace-nowrap">
-              <span className={cn('transition-colors flex items-center justify-center gap-1',
-                activeFeed === tab ? 'text-foreground' : 'text-muted-foreground')}>
-                {tab === 'vibes' && <Flame className="w-4 h-4 text-orange-500" />}
-                {tab === 'for-you' ? 'For You' : tab === 'following' ? 'Following' : 'Vibes'}
-              </span>
-              {activeFeed === tab && (
-                <motion.div layoutId="feedTab"
-                  className="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-primary rounded-full" />
-              )}
-            </button>
-          ))}
-        </div>
-      </header>
+    <>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+        className="flex-1 max-w-2xl border-x border-border min-h-screen pb-20 md:pb-0">
+        <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-md border-b border-border">
+          <div className="p-4 hidden md:flex items-center justify-between">
+            <span style={{ fontFamily: "'Inter', 'SF Pro Display', -apple-system, sans-serif", fontWeight: 700, letterSpacing: "0.18em", fontSize: "1.0rem" }} className="text-foreground uppercase">NETOLYNK</span>
+            <Sparkles className="w-5 h-5 text-primary animate-pulse" />
+          </div>
+          <div className="flex w-full overflow-x-auto scrollbar-hide">
+            {(['for-you', 'following', 'vibes'] as const).map(tab => (
+              <button key={tab} onClick={() => setActiveFeed(tab)}
+                className="flex-1 min-w-[100px] py-4 font-bold transition-colors relative hover:bg-accent/50 text-sm md:text-base whitespace-nowrap">
+                <span className={cn('transition-colors flex items-center justify-center gap-1',
+                  activeFeed === tab ? 'text-foreground' : 'text-muted-foreground')}>
+                  {tab === 'vibes' && <Flame className="w-4 h-4 text-orange-500" />}
+                  {tab === 'for-you' ? 'For You' : tab === 'following' ? 'Following' : 'Vibes'}
+                </span>
+                {activeFeed === tab && (
+                  <motion.div layoutId="feedTab"
+                    className="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-primary rounded-full" />
+                )}
+              </button>
+            ))}
+          </div>
+        </header>
 
-      <div className="p-4 border-b border-border hidden md:block">
-        <CreatePost />
-      </div>
+        {/* ── Blink Bar ── */}
+        <BlinkBar grouped={blinkGroups} loading={blinksLoading} onOpen={openViewer} />
 
-      <div>
-        {activeFeed === 'vibes' && (
-          <div className="p-4 border-b border-border bg-accent/10">
-            <h3 className="font-bold text-sm text-muted-foreground mb-3 uppercase tracking-wider">Active Vibe Rooms</h3>
-            <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-              {vibeRooms.map(room => (
-                <button key={room} className="flex-shrink-0 bg-card border border-border px-4 py-2.5 rounded-2xl flex items-center gap-2 hover:bg-accent hover:scale-105 transition-all shadow-sm">
-                  <div className="transform scale-125">{getMoodIconByLabel(room)}</div>
-                  <span className="font-medium text-sm whitespace-nowrap">{room}</span>
-                  <div className="w-2 h-2 rounded-full bg-green-500 ml-1 animate-pulse" />
-                </button>
-              ))}
+        <div className="p-4 border-b border-border hidden md:block">
+          <CreatePost />
+        </div>
+
+        <div>
+          {activeFeed === 'vibes' && (
+            <div className="p-4 border-b border-border bg-accent/10">
+              <h3 className="font-bold text-sm text-muted-foreground mb-3 uppercase tracking-wider">Active Vibe Rooms</h3>
+              <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                {vibeRooms.map(room => (
+                  <button key={room} className="flex-shrink-0 bg-card border border-border px-4 py-2.5 rounded-2xl flex items-center gap-2 hover:bg-accent hover:scale-105 transition-all shadow-sm">
+                    <div className="transform scale-125">{getMoodIconByLabel(room)}</div>
+                    <span className="font-medium text-sm whitespace-nowrap">{room}</span>
+                    <div className="w-2 h-2 rounded-full bg-green-500 ml-1 animate-pulse" />
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {loading ? (
-          <div className="flex flex-col items-center justify-center p-20 gap-4">
-            <Loader2 className="w-10 h-10 animate-spin text-primary" />
-            <p className="text-muted-foreground font-medium animate-pulse">Curating your feed...</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-border">
-            <AnimatePresence mode="popLayout">
-              {displayedPosts.length > 0 ? (
-                displayedPosts.map((post, idx) => (
-                  <motion.div key={post.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: Math.min(idx * 0.03, 0.3), duration: 0.35, ease: 'easeOut' }}>
-                    <PostCard post={post} />
+          {loading ? (
+            <div className="flex flex-col items-center justify-center p-20 gap-4">
+              <Loader2 className="w-10 h-10 animate-spin text-primary" />
+              <p className="text-muted-foreground font-medium animate-pulse">Curating your feed...</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-border">
+              <AnimatePresence mode="popLayout">
+                {displayedPosts.length > 0 ? (
+                  displayedPosts.map((post, idx) => (
+                    <motion.div key={post.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: Math.min(idx * 0.03, 0.3), duration: 0.35, ease: 'easeOut' }}>
+                      <PostCard post={post} />
+                    </motion.div>
+                  ))
+                ) : (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                    className="p-12 text-center text-muted-foreground">
+                    <p className="text-lg font-medium">No posts yet</p>
                   </motion.div>
-                ))
-              ) : (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                  className="p-12 text-center text-muted-foreground">
-                  <p className="text-lg font-medium">No posts yet</p>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                )}
+              </AnimatePresence>
 
-            <div ref={sentinelRef} className="py-4 flex justify-center">
-              {loadingMore && (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span className="text-sm">Loading more posts...</span>
-                </div>
-              )}
+              <div ref={sentinelRef} className="py-4 flex justify-center">
+                {loadingMore && (
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span className="text-sm">Loading more posts...</span>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
+          )}
+        </div>
+      </motion.div>
+
+      {/* ── Blink Viewer (portal-style, outside scroll container) ── */}
+      <AnimatePresence>
+        {viewerEntry && (
+          <BlinkViewer
+            key={viewerEntry.group.userId}
+            userBlinks={viewerEntry.group}
+            startIndex={viewerEntry.startIdx}
+            onClose={closeViewer}
+            onNextUser={goNextUser}
+            onPrevUser={goPrevUser}
+          />
         )}
-      </div>
-    </motion.div>
+      </AnimatePresence>
+    </>
   );
 };
