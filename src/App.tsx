@@ -21,6 +21,7 @@ import { SupportPage } from './pages/SupportPage';
 import { ReviewsPage } from './pages/ReviewsPage';
 import LynksPage from './pages/LynksPage';
 import CreateLynkPage from './pages/CreateLynkPage';
+import CreateBlinkPage from './pages/CreateBlinkPage';
 import LynkHashtagPage from './pages/LynkHashtagPage';
 import { Loader2 } from 'lucide-react';
 import { usePushNotifications } from './hooks/usePushNotifications';
