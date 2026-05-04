@@ -386,27 +386,15 @@ export const CreatePost: React.FC<CreatePostProps> = ({ onPostCreated }) => {
             )}
           </AnimatePresence>
 
-          {/* GIF Picker popover */}
-          <div className="relative">
-            <AnimatePresence>
-              {showGifPicker && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  className="absolute bottom-full mb-2 left-0 w-full z-50"
-                >
-                  <GifPicker
-                    onSelect={(url) => {
-                      setSelectedGif(url);
-                      setShowGifPicker(false);
-                    }}
-                    onClose={() => setShowGifPicker(false)}
-                  />
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+          {/* GIF Picker slide-up sheet */}
+          <AnimatePresence>
+            {showGifPicker && (
+              <GifPicker
+                onSelect={(url) => { setSelectedGif(url); setShowGifPicker(false); }}
+                onClose={() => setShowGifPicker(false)}
+              />
+            )}
+          </AnimatePresence>
 
           {/* Bottom bar */}
           <div className="flex items-center justify-between pt-3 border-t border-border mt-3 relative">
