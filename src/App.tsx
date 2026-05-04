@@ -21,7 +21,7 @@ import { SupportPage } from './pages/SupportPage';
 import { ReviewsPage } from './pages/ReviewsPage';
 import LynksPage from './pages/LynksPage';
 import CreateLynkPage from './pages/CreateLynkPage';
-import CreateBlinkPage from './pages/CreateBlinkPage';
+import CreateBlinkPage from './components/Blinks/CreateBlinkPage';
 import LynkHashtagPage from './pages/LynkHashtagPage';
 import { Loader2 } from 'lucide-react';
 import { usePushNotifications } from './hooks/usePushNotifications';
@@ -78,6 +78,7 @@ const AppContent: React.FC = () => {
           <Route path="/lynks/:lynkId"     element={<LynksPage />} />
           <Route path="/lynks/tag/:tag"    element={<LynkHashtagPage />} />
           <Route path="/create-lynk"       element={<CreateLynkPage />} />
+          <Route path="/create-blink"      element={<CreateBlinkPage />} />
           <Route path="*"                  element={<Navigate to="/" />} />
         </Routes>
       </main>
