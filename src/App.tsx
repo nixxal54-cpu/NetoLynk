@@ -5,7 +5,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { AccountSwitcherProvider } from './context/AccountSwitcherContext';
 import { AccountSwitcher } from './components/AccountSwitcher';
-import { Sidebar, BottomNav } from './components/Layout/Navigation';
+import { Sidebar, BottomNav, TopHeader } from './components/Layout/Navigation';
 import { AuthForm } from './components/Auth/AuthForm';
 import { Home } from './pages/Home';
 import { Profile } from './pages/Profile';
@@ -19,14 +19,14 @@ import { Settings } from './pages/Settings';
 import { Activity } from './pages/Activity';
 import { SupportPage } from './pages/SupportPage';
 import { ReviewsPage } from './pages/ReviewsPage';
+import LynksPage from './pages/LynksPage';
+import CreateLynkPage from './pages/CreateLynkPage';
+import LynkHashtagPage from './pages/LynkHashtagPage';
 import { Loader2 } from 'lucide-react';
 import { usePushNotifications } from './hooks/usePushNotifications';
 
 const AppContent: React.FC = () => {
   const { firebaseUser, loading } = useAuth();
-
-  // useNetolynkSystem();
-  // useDemoSeed();
   usePushNotifications();
 
   if (loading) {
@@ -51,7 +51,11 @@ const AppContent: React.FC = () => {
   return (
     <div className="flex min-h-screen w-full overflow-x-hidden bg-background text-foreground max-w-7xl mx-auto">
       <Sidebar />
-      <main className="flex-1 flex flex-col min-w-0">
+
+      <main className="flex-1 flex flex-col min-w-0 pt-14 md:pt-0">
+        {/* Mobile top header */}
+        <TopHeader />
+
         <Routes>
           <Route path="/"                  element={<Home />} />
           <Route path="/explore"           element={<Explore />} />
@@ -65,10 +69,16 @@ const AppContent: React.FC = () => {
           <Route path="/activity"          element={<Activity />} />
           <Route path="/support"           element={<SupportPage />} />
           <Route path="/reviews"           element={<ReviewsPage />} />
+          {/* ── Lynks routes ── */}
+          <Route path="/lynks"             element={<LynksPage />} />
+          <Route path="/lynks/:lynkId"     element={<LynksPage />} />
+          <Route path="/lynks/tag/:tag"    element={<LynkHashtagPage />} />
+          <Route path="/create-lynk"       element={<CreateLynkPage />} />
           <Route path="*"                  element={<Navigate to="/" />} />
         </Routes>
       </main>
 
+      {/* Desktop right panel */}
       <div className="hidden lg:block w-80 p-4 sticky top-0 h-screen overflow-y-auto border-l border-border flex-shrink-0">
         <div className="bg-accent/30 rounded-2xl p-4 mb-4">
           <h3 className="font-bold text-lg mb-2">What's happening</h3>
