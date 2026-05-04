@@ -10,7 +10,7 @@ import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { Post as PostType } from '../types';
 import { PostCard } from '../components/Feed/PostCard';
-import { ChevronLeft, Loader2, Send, Trash2, MoreHorizontal, Gif, X } from 'lucide-react';
+import { ChevronLeft, Loader2, Send, Trash2, MoreHorizontal, ImagePlay, X } from 'lucide-react';
 import { GifPicker } from '../components/UI/GifPicker';
 import { AnimatePresence, motion as m2 } from 'motion/react';
 import { motion } from 'motion/react';
@@ -312,7 +312,7 @@ export const PostDetails: React.FC = () => {
                   className={`p-1 rounded-full transition-colors flex-shrink-0 ${showGifPicker || commentGif ? 'text-green-500 bg-green-500/10' : 'text-muted-foreground hover:text-green-500'}`}
                   title="Add GIF"
                 >
-                  <Gif className="w-5 h-5" />
+                  <ImagePlay className="w-5 h-5" />
                 </button>
               </div>
               
