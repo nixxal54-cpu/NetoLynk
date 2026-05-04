@@ -1,4 +1,5 @@
 import { usePageTitle } from '../hooks/usePageTitle';
+import { AnimatePresence } from 'motion/react';
 import imageCompression from 'browser-image-compression';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -887,11 +888,11 @@ export const Messages: React.FC = () => {
                   </div>
                 )}
                 <div className="relative">
-                  {showDmGifPicker && (
-                    <div className="absolute bottom-full mb-2 left-0 right-0 z-50">
+                  <AnimatePresence>
+                    {showDmGifPicker && (
                       <GifPicker onSelect={(url) => { setDmGifUrl(url); setShowDmGifPicker(false); }} onClose={() => setShowDmGifPicker(false)} />
-                    </div>
-                  )}
+                    )}
+                  </AnimatePresence>
                   <div className="flex items-center gap-2">
                     <label className="p-2 text-primary hover:bg-primary/10 rounded-full opacity-60 hover:opacity-100 transition-opacity cursor-pointer">
                       <ImageIcon className="w-6 h-6" />
