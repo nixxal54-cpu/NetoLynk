@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate as _useNavigate } from 'react-router-dom';
 import { PostCard, getMoodIconByLabel } from '../components/Feed/PostCard';
 import { CreatePost } from '../components/Feed/CreatePost';
 import { Post } from '../types';
 import { usePageTitle } from '../hooks/usePageTitle';
-import { Loader2, Sparkles, Flame, Bell } from 'lucide-react';
+import { Loader2, Sparkles, Flame } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useInfiniteFeed } from '../hooks/useInfiniteScroll';
@@ -30,7 +30,6 @@ const calculatePostScore = (post: Post) => {
 
 export const Home: React.FC = () => {
   usePageTitle('Home');
-  const navigate = useNavigate();
   const { user } = useAuth();
   const [activeFeed, setActiveFeed] = useState<'for-you' | 'following' | 'vibes'>('for-you');
   const { data: posts, loading, loadingMore, hasMore, fetchMore } = useInfiniteFeed<Post>('posts');
@@ -68,15 +67,9 @@ export const Home: React.FC = () => {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
       className="flex-1 max-w-2xl border-x border-border min-h-screen pb-20 md:pb-0">
       <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-md border-b border-border">
-        <div className="p-4 flex items-center justify-between">
+        <div className="p-4 hidden md:flex items-center justify-between">
           <span style={{ fontFamily: "'Inter', 'SF Pro Display', -apple-system, sans-serif", fontWeight: 700, letterSpacing: "0.18em", fontSize: "1.0rem" }} className="text-foreground uppercase">NETOLYNK</span>
-          <div className="flex items-center gap-3">
-            <button onClick={() => navigate('/notifications')}
-              className="md:hidden p-2 hover:bg-accent rounded-full text-muted-foreground hover:text-foreground transition-colors">
-              <Bell className="w-6 h-6" />
-            </button>
-            <Sparkles className="w-5 h-5 text-primary animate-pulse" />
-          </div>
+          <Sparkles className="w-5 h-5 text-primary animate-pulse" />
         </div>
         <div className="flex w-full overflow-x-auto scrollbar-hide">
           {(['for-you', 'following', 'vibes'] as const).map(tab => (
