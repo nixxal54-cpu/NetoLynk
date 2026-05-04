@@ -74,7 +74,7 @@ service cloud.firestore {
                     (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys()
                       .hasOnly(['pollOptions'])) ||
                     (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys()
-                      .hasOnly(['quizOptions', 'likesCount', 'commentsCount', 'sharesCount']));
+                      .hasOnly(['quizOptions']));
       allow delete: if isDocOwner();
 
       match /comments/{commentId} {
