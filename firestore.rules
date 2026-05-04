@@ -10,14 +10,24 @@ service cloud.firestore {
     function isOwner(userId) { return isAuthenticated() && request.auth.uid == userId; }
     function isDocOwner() { return isAuthenticated() && request.auth.uid == resource.data.userId; }
 
-    function isValidEmail(email) { return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"); }
-    function isValidUrl(url) { return url == null || (url is string && (url.matches("^https://.*") || url.matches("^http://.*"))); }
-    function isValidTimestamp(ts) { return ts is timestamp || (ts is string && ts.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$")); }
+    function isValidEmail(email) { 
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"); 
+    }
 
-    function isAdmin() { return isAuthenticated() && request.auth.token.role == 'admin'; }
+    function isValidUrl(url) { 
+      return url == null || (url is string && (url.matches("^https://.*") || url.matches("^http://.*"))); 
+    }
+
+    function isValidTimestamp(ts) { 
+      return ts is timestamp || (ts is string && ts.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$")); 
+    }
+
+    function isAdmin() { 
+      return isAuthenticated() && request.auth.token.role == 'admin'; 
+    }
 
     // ===============================================================
-    // Domain Validators
+    // Validators
     // ===============================================================
 
     function isValidUser(data) {
@@ -48,42 +58,61 @@ service cloud.firestore {
     }
 
     // ===============================================================
-    // Core App Rules
+    // Users
     // ===============================================================
 
     match /users/{userId} {
       allow read: if isAuthenticated();
+
       allow create: if isOwner(userId) && isValidUser(request.resource.data);
+
       allow update: if (isOwner(userId) && isValidUser(request.resource.data) &&
-                    request.resource.data.uid == resource.data.uid &&
-                    request.resource.data.createdAt == resource.data.createdAt) ||
-                    (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys()
-                      .hasOnly(['followers', 'following']));
+                        request.resource.data.uid == resource.data.uid &&
+                        request.resource.data.createdAt == resource.data.createdAt)
+                    ||
+                    (isAuthenticated() &&
+                     request.resource.data.diff(resource.data).affectedKeys()
+                     .hasOnly(['followers', 'following']));
     }
+
+    // ===============================================================
+    // Posts
+    // ===============================================================
 
     match /posts/{postId} {
       allow read: if isAuthenticated();
+
       allow create: if isAuthenticated() && (
-                      isValidPost(request.resource.data) ||
-                      (request.resource.data.userId == 'system_netolynk_official' && request.resource.data.isOfficial == true) ||
-                      (request.resource.data.isDemo == true && request.resource.data.userId.matches('^demo_user_.*'))
-                    );
+        isValidPost(request.resource.data) ||
+        (request.resource.data.userId == 'system_netolynk_official' &&
+         request.resource.data.isOfficial == true) ||
+        (request.resource.data.isDemo == true &&
+         request.resource.data.userId.matches('^demo_user_.*'))
+      );
+
       allow update: if (isDocOwner() && isValidPost(request.resource.data)) ||
-                    (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys()
-                      .hasOnly(['likedBy', 'savedBy', 'sharesCount'])) ||
-                    (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys()
-                      .hasOnly(['pollOptions'])) ||
-                    (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys()
-                      .hasOnly(['quizOptions']));
+                    (isAuthenticated() &&
+                     request.resource.data.diff(resource.data).affectedKeys()
+                     .hasOnly(['likedBy', 'savedBy', 'sharesCount'])) ||
+                    (isAuthenticated() &&
+                     request.resource.data.diff(resource.data).affectedKeys()
+                     .hasOnly(['pollOptions'])) ||
+                    (isAuthenticated() &&
+                     request.resource.data.diff(resource.data).affectedKeys()
+                     .hasOnly(['quizOptions']));
+
       allow delete: if isDocOwner();
 
       match /comments/{commentId} {
         allow read: if isAuthenticated();
-        allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+
+        allow create: if isAuthenticated() &&
+                      request.resource.data.userId == request.auth.uid;
+
         allow delete: if isAuthenticated() && (
-                        resource.data.userId == request.auth.uid ||
-                        get(/databases/$(database)/documents/posts/$(postId)).data.userId == request.auth.uid
-                      );
+          resource.data.userId == request.auth.uid ||
+          get(/databases/$(database)/documents/posts/$(postId)).data.userId == request.auth.uid
+        );
       }
 
       match /likes/{userId} {
@@ -91,6 +120,10 @@ service cloud.firestore {
         allow write: if isOwner(userId);
       }
     }
+
+    // ===============================================================
+    // Followers / Following
+    // ===============================================================
 
     match /users/{userId}/followers/{followerId} {
       allow read: if isAuthenticated();
@@ -102,28 +135,51 @@ service cloud.firestore {
       allow write: if isOwner(userId);
     }
 
+    // ===============================================================
+    // Chats
+    // ===============================================================
+
     match /chats/{chatId} {
-      allow read: if isAuthenticated() && request.auth.uid in resource.data.participants;
-      allow create: if isAuthenticated() && request.auth.uid in request.resource.data.participants;
-      allow update: if isAuthenticated() && request.auth.uid in resource.data.participants;
+      allow read: if isAuthenticated() &&
+                  request.auth.uid in resource.data.participants;
+
+      allow create: if isAuthenticated() &&
+                    request.auth.uid in request.resource.data.participants;
+
+      allow update: if isAuthenticated() &&
+                    request.auth.uid in resource.data.participants;
 
       match /messages/{messageId} {
-        allow read: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
-        allow create: if isAuthenticated() && request.resource.data.senderId == request.auth.uid;
+        allow read: if isAuthenticated() &&
+          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+
+        allow create: if isAuthenticated() &&
+                      request.resource.data.senderId == request.auth.uid;
       }
     }
 
+    // ===============================================================
+    // Notifications
+    // ===============================================================
+
     match /notifications/{notificationId} {
-      allow read: if isAuthenticated() && (
-                    resource.data.recipientId == request.auth.uid ||
-                    resource.data.recipientId == 'all'
-                  );
+      allow read: if isAuthenticated() &&
+        (resource.data.recipientId == request.auth.uid ||
+         resource.data.recipientId == 'all');
+
       allow create: if isAuthenticated();
+
       allow update: if isAuthenticated() &&
-                    resource.data.recipientId == request.auth.uid &&
-                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
-      allow delete: if isAuthenticated() && resource.data.recipientId == request.auth.uid;
+        resource.data.recipientId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+
+      allow delete: if isAuthenticated() &&
+        resource.data.recipientId == request.auth.uid;
     }
+
+    // ===============================================================
+    // Reviews
+    // ===============================================================
 
     match /reviews/{reviewId} {
       allow read: if isAuthenticated();
@@ -132,13 +188,17 @@ service cloud.firestore {
       allow update: if false;
     }
 
+    // ===============================================================
+    // Meta
+    // ===============================================================
+
     match /meta/{docId} {
       allow read: if isAuthenticated();
       allow write: if isAuthenticated();
     }
 
     // ===============================================================
-    // 📊 Analytics Rules (Merged from second file)
+    // Analytics
     // ===============================================================
 
     match /analytics_events/{eventId} {
@@ -164,58 +224,62 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-  }
-}
+    // ===============================================================
+    // 🔥 Lynks (FIXED + SECURE)
+    // ===============================================================
 
-    // ── Lynks ──────────────────────────────────────────────────────────
     match /lynks/{lynkId} {
       allow read: if true;
-      allow create: if request.auth != null
+
+      allow create: if isAuthenticated()
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.duration >= 5
         && request.resource.data.duration <= 60;
-      allow update: if request.auth != null && (
-        // Owner can soft-delete
-        (resource.data.userId == request.auth.uid)
-        // System increments (likes, views, etc.) from authenticated users
-        || request.auth != null
-      );
-      allow delete: if false; // soft-delete only
+
+      allow update: if isAuthenticated() &&
+                    request.auth.uid == resource.data.userId;
+
+      allow delete: if false;
     }
 
     match /lynkLikes/{likeId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated()
         && likeId == request.resource.data.lynkId + '_' + request.auth.uid;
     }
 
     match /lynkComments/{commentId} {
       allow read: if true;
-      allow create: if request.auth != null
+
+      allow create: if isAuthenticated()
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.text.size() <= 500;
-      allow delete: if request.auth != null
+
+      allow delete: if isAuthenticated()
         && resource.data.userId == request.auth.uid;
     }
 
     match /lynkViews/{viewId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow read, write: if isAuthenticated();
     }
 
     match /watchTimeLogs/{logId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null
+      allow read: if isAuthenticated();
+
+      allow create: if isAuthenticated()
         && request.resource.data.userId == request.auth.uid;
     }
 
     match /lynkSaves/{saveId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow read, write: if isAuthenticated();
     }
 
     match /lynkReports/{reportId} {
-      allow read: if false; // admin only
-      allow create: if request.auth != null
+      allow read: if false;
+
+      allow create: if isAuthenticated()
         && request.resource.data.userId == request.auth.uid;
     }
+
+  }
+}
