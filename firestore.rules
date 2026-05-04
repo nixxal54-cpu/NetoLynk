@@ -34,8 +34,8 @@ service cloud.firestore {
       return data.userId == request.auth.uid &&
              data.username is string &&
              (data.text == null || (data.text is string && data.text.size() <= 2200)) &&
-             data.mediaUrls is list && data.mediaUrls.size() <= 10 &&
-             data.type in ['text', 'image', 'video'];
+             (data.mediaUrls == null || (data.mediaUrls is list && data.mediaUrls.size() <= 10)) &&
+             data.type in ['text', 'image', 'video', 'poll', 'quiz', 'gif'];
     }
 
     function isValidReview(data) {
@@ -70,7 +70,11 @@ service cloud.firestore {
                     );
       allow update: if (isDocOwner() && isValidPost(request.resource.data)) ||
                     (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys()
-                      .hasOnly(['likedBy', 'savedBy', 'sharesCount']));
+                      .hasOnly(['likedBy', 'savedBy', 'sharesCount'])) ||
+                    (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys()
+                      .hasOnly(['pollOptions'])) ||
+                    (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys()
+                      .hasOnly(['quizOptions', 'likesCount', 'commentsCount', 'sharesCount']));
       allow delete: if isDocOwner();
 
       match /comments/{commentId} {
