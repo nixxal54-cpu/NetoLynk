@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, Image as ImageIcon, Video, Type, Send, Loader2, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { useBlinkUpload } from '../hooks/useBlinkUpload';
+import { useBlinkUpload } from '../../hooks/useBlinkUpload';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { cn } from '../lib/utils';
 
