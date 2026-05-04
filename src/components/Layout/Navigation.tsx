@@ -1,6 +1,6 @@
 import React, { useRef, useCallback, useEffect, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { Home, Search, Bell, Mail, User, PlusSquare, LogOut, Sun, Moon, Film } from 'lucide-react';
+import { Home, Search, Bell, Mail, User, PlusSquare, LogOut, Sun, Moon, Film, FileText } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { auth, db } from '../../lib/firebase';
@@ -60,24 +60,74 @@ function Badge({ count }: { count: number }) {
   );
 }
 
+// ─── Create Dropdown ──────────────────────────────────────────────────────────
+function CreateDropdown({ onClose }: { onClose: () => void }) {
+  const navigate = useNavigate();
+
+  const go = (path: string) => {
+    onClose();
+    navigate(path);
+  };
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      {/* Menu */}
+      <div className="absolute top-full left-0 mt-2 z-50 bg-card border border-border rounded-2xl shadow-xl overflow-hidden min-w-[180px] animate-in fade-in slide-in-from-top-2 duration-150">
+        <button
+          onClick={() => go('/create')}
+          className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-accent transition-colors text-left"
+        >
+          <FileText className="w-5 h-5 text-primary" />
+          <div>
+            <p className="font-semibold text-sm">Create Post</p>
+            <p className="text-xs text-muted-foreground">Share text, images or GIFs</p>
+          </div>
+        </button>
+        <div className="h-px bg-border mx-3" />
+        <button
+          onClick={() => go('/create-lynk')}
+          className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-accent transition-colors text-left"
+        >
+          <Film className="w-5 h-5 text-primary" />
+          <div>
+            <p className="font-semibold text-sm">Create Lynk</p>
+            <p className="text-xs text-muted-foreground">Upload a short video</p>
+          </div>
+        </button>
+      </div>
+    </>
+  );
+}
+
 // ─── Top Header Bar ────────────────────────────────────────────────────────────
 export const TopHeader: React.FC = () => {
   const navigate = useNavigate();
   const { unreadNotifications } = useUnreadCounts();
+  const [showCreate, setShowCreate] = useState(false);
 
   return (
     <header className="md:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-3 bg-background/90 backdrop-blur-lg border-b border-border h-14">
       {/* Left: Create */}
-      <button
-        onClick={() => navigate('/create')}
-        className="flex items-center gap-1 text-sm font-semibold text-primary"
-      >
-        <PlusSquare className="w-5 h-5" />
-        <span>Create</span>
-      </button>
+      <div className="relative">
+        <button
+          onClick={() => setShowCreate(v => !v)}
+          className="flex items-center gap-1 text-sm font-semibold text-primary"
+        >
+          <PlusSquare className="w-5 h-5" />
+          <span>Create</span>
+        </button>
+        {showCreate && <CreateDropdown onClose={() => setShowCreate(false)} />}
+      </div>
 
-      {/* Center: Logo */}
-      <img src="/netolynk-logo.png" alt="NetoLynk" className="h-8 w-auto object-contain absolute left-1/2 -translate-x-1/2" />
+      {/* Center: Brand name */}
+      <span
+        className="absolute left-1/2 -translate-x-1/2 text-foreground uppercase tracking-widest font-bold text-sm"
+        style={{ fontFamily: "'Syne', 'Inter', sans-serif", letterSpacing: '0.18em' }}
+      >
+        NETOLYNK
+      </span>
 
       {/* Right: Notifications */}
       <NavLink to="/notifications" className="relative p-1">
@@ -101,7 +151,7 @@ export const Sidebar: React.FC = () => {
   const navItems = [
     { icon: Home,  label: 'Home',          path: '/',                           badge: 0 },
     { icon: Search,label: 'Search',         path: '/explore',                    badge: 0 },
-    { icon: Film,  label: 'Lynks',          path: '/lynks',                      badge: 0, accent: true },
+    { icon: Film,  label: 'Lynks',          path: '/lynks',                      badge: 0 },
     { icon: Mail,  label: 'Messages',       path: '/messages',                   badge: unreadMessages },
     { icon: User,  label: 'Profile',        path: `/profile/${user?.username}`,  badge: 0 },
   ];
@@ -122,19 +172,15 @@ export const Sidebar: React.FC = () => {
             className={({ isActive }) =>
               cn(
                 'flex items-center gap-4 px-4 py-3 rounded-xl transition-all hover:bg-accent group',
-                isActive
-                  ? item.accent ? 'bg-primary/10 text-primary font-bold' : 'bg-accent text-primary font-bold'
-                  : 'text-foreground/70'
+                isActive ? 'bg-accent text-primary font-bold' : 'text-foreground/70'
               )
             }
           >
             <span className="relative">
-              <item.icon className={cn('w-6 h-6 group-hover:scale-110 transition-transform', item.accent && 'text-primary')} />
+              <item.icon className="w-6 h-6 group-hover:scale-110 transition-transform" />
               <Badge count={item.badge} />
             </span>
-            <span className={cn('text-lg', item.accent && 'text-primary font-bold')}>
-              {item.label}
-            </span>
+            <span className="text-lg">{item.label}</span>
           </NavLink>
         ))}
 
@@ -186,7 +232,7 @@ export const Sidebar: React.FC = () => {
   );
 };
 
-// ─── Bottom Nav (mobile) — with centred Lynks button ──────────────────────────
+// ─── Bottom Nav (mobile) ──────────────────────────────────────────────────────
 export const BottomNav: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -197,11 +243,10 @@ export const BottomNav: React.FC = () => {
   useEffect(() => { if (currentUid) addCurrentAccount(currentUid); }, [currentUid, addCurrentAccount]);
 
   const profileLongPress = useLongPress(openSwitcher, () => navigate(`/profile/${user?.username}`));
-
   const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(path + '/');
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur-lg border-t border-border flex items-center justify-around px-1 z-50 pb-[env(safe-area-inset-bottom)] h-[68px]">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur-lg border-t border-border flex items-center justify-around px-1 z-50 pb-[env(safe-area-inset-bottom)] h-[60px]">
 
       {/* Home */}
       <NavLink to="/" end className={({ isActive }) => cn('p-2 transition-colors', isActive ? 'text-primary' : 'text-foreground/60')}>
@@ -213,23 +258,10 @@ export const BottomNav: React.FC = () => {
         <Search className="w-6 h-6" />
       </NavLink>
 
-      {/* ── LYNKS — centred, elevated ── */}
-      <div className="relative -top-5 flex flex-col items-center">
-        <NavLink
-          to="/lynks"
-          className={({ isActive }) =>
-            cn(
-              'flex flex-col items-center justify-center w-14 h-14 rounded-2xl shadow-xl transition-all active:scale-95',
-              isActive
-                ? 'bg-primary text-primary-foreground shadow-primary/40'
-                : 'bg-primary text-primary-foreground shadow-primary/30'
-            )
-          }
-        >
-          <Film className="w-7 h-7" />
-        </NavLink>
-        <span className="text-[10px] font-bold text-primary mt-1">Lynks</span>
-      </div>
+      {/* Lynks — normal nav item */}
+      <NavLink to="/lynks" className={({ isActive }) => cn('p-2 transition-colors', isActive ? 'text-primary' : 'text-foreground/60')}>
+        <Film className="w-6 h-6" />
+      </NavLink>
 
       {/* Messages */}
       <NavLink to="/messages" className={({ isActive }) => cn('relative p-2 transition-colors', isActive ? 'text-primary' : 'text-foreground/60')}>
