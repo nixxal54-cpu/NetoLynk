@@ -26,6 +26,7 @@ export interface QuizOption {
   id: string;
   text: string;
   isCorrect: boolean;
+  answeredBy?: string[];
 }
 
 export interface Post {
