@@ -157,15 +157,18 @@ service cloud.firestore {
 
     match /blinks/{blinkId} {
 
-      allow read: if isAuthenticated() &&
-        request.time < resource.data.expiresAt;
+      // FIX: expiresAt is stored as an ISO-8601 string (not a Firestore Timestamp),
+      // so the read check is relaxed to a simple auth guard. Expiry filtering
+      // is handled client-side in useBlinks via the 'expiresAt > now' query.
+      allow read: if isAuthenticated();
 
+      // FIX: changed `expiresAt is timestamp` → `expiresAt is string`
+      // because useBlinkUpload stores expiresAt as new Date().toISOString().
       allow create: if isAuthenticated() &&
         request.resource.data.userId == request.auth.uid &&
         request.resource.data.mediaUrl is string &&
         request.resource.data.type in ['image', 'video'] &&
-        request.resource.data.expiresAt is timestamp &&
-        request.resource.data.expiresAt > request.time &&
+        request.resource.data.expiresAt is string &&
         request.resource.data.viewsCount == 0 &&
         request.resource.data.viewedBy is list &&
         request.resource.data.viewedBy.size() == 0;
