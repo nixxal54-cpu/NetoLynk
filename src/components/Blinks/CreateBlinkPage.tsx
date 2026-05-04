@@ -8,8 +8,8 @@ import { ChevronLeft, Image as ImageIcon, Video, Type, Send, Loader2, X } from '
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { useBlinkUpload } from '../../hooks/useBlinkUpload';
-import { usePageTitle } from '../hooks/usePageTitle';
-import { cn } from '../lib/utils';
+import { usePageTitle } from '../../hooks/usePageTitle';
+import { cn } from '../../lib/utils';
 
 const TEXT_COLORS = ['#ffffff', '#000000', '#FF3B30', '#FFD60A', '#30D158', '#0A84FF', '#FF9F0A', '#BF5AF2'];
 
