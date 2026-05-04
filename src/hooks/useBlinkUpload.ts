@@ -1,8 +1,17 @@
 /**
  * useBlinkUpload.ts
  * Handles image/video upload for Blinks with preview and progress tracking.
+ *
+ * FIX: publish() previously listed `state` in its useCallback deps. Because
+ * `state` is a new object on every render, the callback was recreated on every
+ * progress tick, which could cause the Firebase upload task listener to go
+ * stale mid-upload — resulting in the spinner hanging forever at some %.
+ *
+ * Solution: store the mutable parts (file, type, caption, overlays) in a ref
+ * so publish() never needs `state` as a dependency. setState calls only update
+ * the UI; the actual upload reads from the stable ref.
  */
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { collection, addDoc } from 'firebase/firestore';
 import { storage, db } from '../lib/firebase';
@@ -12,18 +21,30 @@ import { BlinkUploadState } from '../types/blink';
 const MAX_IMAGE_MB = 10;
 const MAX_VIDEO_MB = 50;
 
+const INITIAL_STATE: BlinkUploadState = {
+  file: null,
+  previewUrl: null,
+  type: null,
+  textOverlay: '',
+  textOverlayColor: '#ffffff',
+  caption: '',
+  progress: 0,
+  uploading: false,
+  error: null,
+};
+
 export function useBlinkUpload() {
   const { user } = useAuth();
-  const [state, setState] = useState<BlinkUploadState>({
-    file: null,
-    previewUrl: null,
-    type: null,
+  const [state, setState] = useState<BlinkUploadState>(INITIAL_STATE);
+
+  // Stable ref — publish reads from here, never from `state`
+  const uploadDataRef = useRef({
+    file: null as File | null,
+    type: null as 'image' | 'video' | null,
     textOverlay: '',
     textOverlayColor: '#ffffff',
     caption: '',
-    progress: 0,
-    uploading: false,
-    error: null,
+    previewUrl: null as string | null,
   });
 
   const selectFile = useCallback((file: File) => {
@@ -41,40 +62,56 @@ export function useBlinkUpload() {
       return;
     }
 
+    // Revoke old preview URL if any
+    if (uploadDataRef.current.previewUrl) {
+      URL.revokeObjectURL(uploadDataRef.current.previewUrl);
+    }
+
     const previewUrl = URL.createObjectURL(file);
+    const type = isVideo ? 'video' : 'image';
+
+    uploadDataRef.current = { ...uploadDataRef.current, file, type, previewUrl };
+
     setState(s => ({
       ...s,
       file,
       previewUrl,
-      type: isVideo ? 'video' : 'image',
+      type,
       error: null,
     }));
   }, []);
 
   const setTextOverlay = useCallback((text: string) => {
+    uploadDataRef.current.textOverlay = text;
     setState(s => ({ ...s, textOverlay: text }));
   }, []);
 
   const setTextOverlayColor = useCallback((color: string) => {
+    uploadDataRef.current.textOverlayColor = color;
     setState(s => ({ ...s, textOverlayColor: color }));
   }, []);
 
   const setCaption = useCallback((caption: string) => {
+    uploadDataRef.current.caption = caption;
     setState(s => ({ ...s, caption }));
   }, []);
 
+  // publish() depends only on `user` — never on `state`
   const publish = useCallback(async (): Promise<boolean> => {
-    if (!user || !state.file || !state.type) return false;
+    const { file, type, textOverlay, textOverlayColor, caption } = uploadDataRef.current;
+
+    if (!user || !file || !type) return false;
 
     setState(s => ({ ...s, uploading: true, error: null, progress: 0 }));
 
     try {
       const fileId = `${user.uid}_${Date.now()}`;
-      const folder = state.type === 'video' ? 'blinks/videos' : 'blinks/images';
-      const ext = state.type === 'video' ? 'mp4' : 'jpg';
+      const folder = type === 'video' ? 'blinks/videos' : 'blinks/images';
+      // Preserve real extension from the file object
+      const ext = file.name.split('.').pop() ?? (type === 'video' ? 'mp4' : 'jpg');
       const storageRef = ref(storage, `${folder}/${fileId}.${ext}`);
 
-      const task = uploadBytesResumable(storageRef, state.file);
+      const task = uploadBytesResumable(storageRef, file);
 
       const mediaUrl = await new Promise<string>((resolve, reject) => {
         task.on(
@@ -83,8 +120,15 @@ export function useBlinkUpload() {
             const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
             setState(s => ({ ...s, progress: pct }));
           },
-          reject,
-          async () => resolve(await getDownloadURL(task.snapshot.ref))
+          (err) => reject(err),
+          async () => {
+            try {
+              const url = await getDownloadURL(task.snapshot.ref);
+              resolve(url);
+            } catch (e) {
+              reject(e);
+            }
+          }
         );
       });
 
@@ -97,10 +141,10 @@ export function useBlinkUpload() {
         userDisplayName: user.displayName,
         userProfileImage: user.profileImage ?? null,
         mediaUrl,
-        type: state.type,
-        caption: state.caption.trim() || null,
-        textOverlay: state.textOverlay.trim() || null,
-        textOverlayColor: state.textOverlayColor,
+        type,
+        caption: caption.trim() || null,
+        textOverlay: textOverlay.trim() || null,
+        textOverlayColor,
         musicUrl: null,
         musicTitle: null,
         viewsCount: 0,
@@ -109,30 +153,29 @@ export function useBlinkUpload() {
         expiresAt,
       });
 
-      // Notify followers — handled by Cloud Function (see functions/src/index.ts)
-
       setState(s => ({ ...s, uploading: false, progress: 100 }));
       return true;
     } catch (err: any) {
-      setState(s => ({ ...s, uploading: false, error: err.message ?? 'Upload failed' }));
+      console.error('Blink upload error:', err);
+      setState(s => ({
+        ...s,
+        uploading: false,
+        error: err?.message ?? 'Upload failed. Check your connection and try again.',
+      }));
       return false;
     }
-  }, [user, state]);
+  }, [user]); // ← only user, NOT state
 
   const reset = useCallback(() => {
-    if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
-    setState({
-      file: null,
-      previewUrl: null,
-      type: null,
-      textOverlay: '',
-      textOverlayColor: '#ffffff',
-      caption: '',
-      progress: 0,
-      uploading: false,
-      error: null,
-    });
-  }, [state.previewUrl]);
+    if (uploadDataRef.current.previewUrl) {
+      URL.revokeObjectURL(uploadDataRef.current.previewUrl);
+    }
+    uploadDataRef.current = {
+      file: null, type: null, textOverlay: '',
+      textOverlayColor: '#ffffff', caption: '', previewUrl: null,
+    };
+    setState(INITIAL_STATE);
+  }, []);
 
   return { state, selectFile, setTextOverlay, setTextOverlayColor, setCaption, publish, reset };
 }
