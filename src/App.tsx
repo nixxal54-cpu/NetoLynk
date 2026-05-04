@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
@@ -27,7 +27,10 @@ import { usePushNotifications } from './hooks/usePushNotifications';
 
 const AppContent: React.FC = () => {
   const { firebaseUser, loading } = useAuth();
+  const location = useLocation();
   usePushNotifications();
+
+  const isLynksPage = location.pathname.startsWith('/lynks');
 
   if (loading) {
     return (
@@ -52,9 +55,9 @@ const AppContent: React.FC = () => {
     <div className="flex min-h-screen w-full overflow-x-hidden bg-background text-foreground max-w-7xl mx-auto">
       <Sidebar />
 
-      <main className="flex-1 flex flex-col min-w-0 pt-14 md:pt-0">
-        {/* Mobile top header */}
-        <TopHeader />
+      <main className={`flex-1 flex flex-col min-w-0 ${isLynksPage ? 'pt-0' : 'pt-14'} md:pt-0`}>
+        {/* Mobile top header — hidden on Lynks page */}
+        {!isLynksPage && <TopHeader />}
 
         <Routes>
           <Route path="/"                  element={<Home />} />
