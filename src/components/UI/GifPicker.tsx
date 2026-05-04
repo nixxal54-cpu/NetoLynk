@@ -2,10 +2,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, X, Loader2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
-// Using Tenor API v2 (free, no key needed for basic use - fallback to static gifs)
-// For production, use GIPHY or Tenor with an API key
-const TENOR_API_KEY = 'AIzaSyAyimkuYQYF_FXVALexolOsiqar4E';
-const TENOR_BASE = 'https://tenor.googleapis.com/v2';
+// Tenor v1 API with public demo key
+const TENOR_API_KEY = 'LIVDSRZULELA';
+const TENOR_BASE = 'https://api.tenor.com/v1';
 
 interface GifResult {
   id: string;
@@ -32,19 +31,22 @@ export const GifPicker: React.FC<GifPickerProps> = ({ onSelect, onClose }) => {
     setError('');
     try {
       const endpoint = searchQuery.trim()
-        ? `${TENOR_BASE}/search?q=${encodeURIComponent(searchQuery)}&key=${TENOR_API_KEY}&limit=20&media_filter=gif`
-        : `${TENOR_BASE}/featured?key=${TENOR_API_KEY}&limit=20&media_filter=gif`;
+        ? `${TENOR_BASE}/search?q=${encodeURIComponent(searchQuery)}&key=${TENOR_API_KEY}&limit=20&media_filter=minimal`
+        : `${TENOR_BASE}/trending?key=${TENOR_API_KEY}&limit=20&media_filter=minimal`;
 
       const res = await fetch(endpoint);
       if (!res.ok) throw new Error('Failed to fetch GIFs');
       const data = await res.json();
 
-      const results: GifResult[] = (data.results || []).map((item: any) => ({
-        id: item.id,
-        url: item.media_formats?.gif?.url || item.media_formats?.mediumgif?.url || '',
-        preview: item.media_formats?.tinygif?.url || item.media_formats?.nanogif?.url || '',
-        title: item.title || item.content_description || '',
-      })).filter((g: GifResult) => g.url);
+      const results: GifResult[] = (data.results || []).map((item: any) => {
+        const media = item.media?.[0] || {};
+        return {
+          id: item.id,
+          url: media.gif?.url || media.mediumgif?.url || '',
+          preview: media.tinygif?.url || media.nanogif?.url || media.gif?.url || '',
+          title: item.title || '',
+        };
+      }).filter((g: GifResult) => g.url);
 
       setGifs(results);
     } catch (err) {
