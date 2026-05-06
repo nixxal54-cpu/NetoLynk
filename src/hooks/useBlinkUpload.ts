@@ -1,6 +1,6 @@
 /**
  * useBlinkUpload.ts
- * Uses Cloudinary for storage — free, no Firebase Storage, no CORS issues.
+ * Uses Cloudinary with the modern `fetch` API for stable mobile data uploads!
  */
 import { useState, useCallback, useRef } from 'react';
 import { collection, addDoc } from 'firebase/firestore';
@@ -11,8 +11,7 @@ import { BlinkUploadState } from '../types/blink';
 const MAX_IMAGE_MB = 10;
 const MAX_VIDEO_MB = 50;
 
-// HARDCODED FIX: These are your exact Cloudinary details. 
-// This bypasses any Vercel/Environment variable issues completely.
+// Hardcoded details — bypassing environment variable issues entirely
 const CLOUD_NAME = 'dmwnywqes';
 const UPLOAD_PRESET = 'blinks';
 
@@ -25,7 +24,6 @@ const INITIAL_STATE: BlinkUploadState = {
 export function useBlinkUpload() {
   const { user } = useAuth();
   const [state, setState] = useState<BlinkUploadState>(INITIAL_STATE);
-  const xhrRef = useRef<XMLHttpRequest | null>(null);
 
   const dataRef = useRef({
     file: null as File | null,
@@ -81,63 +79,44 @@ export function useBlinkUpload() {
     const { file, type, textOverlay, textOverlayColor, caption, musicUrl, musicTitle } = dataRef.current;
     if (!user || !file || !type) return false;
 
-    setState(s => ({ ...s, uploading: true, error: null, progress: 1 }));
+    setState(s => ({ ...s, uploading: true, error: null, progress: 5 }));
+
+    // Because fetch doesn't have native upload progress, we simulate a smooth 
+    // loading bar up to 90%, then snap it to 100% when Cloudinary replies.
+    let currentProgress = 5;
+    const progressInterval = setInterval(() => {
+      currentProgress = Math.min(currentProgress + 8, 90);
+      setState(s => ({ ...s, progress: currentProgress }));
+    }, 600);
 
     try {
-      // ── Step 1: Upload file to Cloudinary ──────────────────────────────
+      // ── Step 1: Upload file to Cloudinary using modern fetch() ──────────
       const formData = new FormData();
       formData.append('file', file);
       formData.append('upload_preset', UPLOAD_PRESET);
       
-      // CRITICAL FIX: Removed `folder` and `tags` here. 
-      // Cloudinary's "Unsigned" presets block uploads and throw Network Errors if you send these!
+      // Using 'auto' allows Cloudinary to automatically detect if it's an image/video
+      const uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`;
 
-      const resourceType = type === 'video' ? 'video' : 'image';
-      const uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/${resourceType}/upload`;
-
-      console.log('[Blink] Uploading to:', uploadUrl);
-
-      const mediaUrl = await new Promise<string>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhrRef.current = xhr;
-
-        xhr.upload.addEventListener('progress', e => {
-          if (e.lengthComputable) {
-            const pct = Math.round((e.loaded / e.total) * 90);
-            setState(s => ({ ...s, progress: Math.max(1, pct) }));
-          }
-        });
-
-        xhr.addEventListener('load', () => {
-          console.log('[Blink] XHR status:', xhr.status, xhr.responseText.slice(0, 200));
-          if (xhr.status >= 200 && xhr.status < 300) {
-            const data = JSON.parse(xhr.responseText);
-            resolve(data.secure_url);
-          } else {
-            try {
-              const errData = JSON.parse(xhr.responseText);
-              reject(new Error(errData?.error?.message ?? `Cloudinary error ${xhr.status}`));
-            } catch {
-              reject(new Error(`Upload failed: HTTP ${xhr.status}`));
-            }
-          }
-        });
-
-        xhr.addEventListener('error', (e) => {
-          console.error('[Blink] XHR network error', e);
-          reject(new Error('Network error uploading to Cloudinary. Check your internet.'));
-        });
-        xhr.addEventListener('abort', () => reject(new Error('Upload cancelled.')));
-        xhr.timeout = 120_000;
-        xhr.addEventListener('timeout', () => reject(new Error('Upload timed out. Try a smaller file or better connection.')));
-
-        xhr.open('POST', uploadUrl);
-        // Do NOT set Content-Type — browser sets it with the correct boundary for FormData
-        xhr.send(formData);
+      const response = await fetch(uploadUrl, {
+        method: 'POST',
+        body: formData,
+        // Notice: We don't set headers. The browser automatically sets 
+        // the correct multipart/form-data boundary!
       });
 
+      clearInterval(progressInterval);
       setState(s => ({ ...s, progress: 95 }));
-      console.log('[Blink] Cloudinary URL:', mediaUrl);
+
+      if (!response.ok) {
+        // If it fails, fetch will grab the EXACT error message from Cloudinary
+        const errorData = await response.json().catch(() => null);
+        console.error('[Blink] Cloudinary rejected upload:', errorData);
+        throw new Error(errorData?.error?.message || `Cloudinary Error ${response.status}`);
+      }
+
+      const data = await response.json();
+      const mediaUrl = data.secure_url;
 
       // ── Step 2: Save to Firestore ──────────────────────────────────────
       const now = new Date();
@@ -165,6 +144,7 @@ export function useBlinkUpload() {
       return true;
 
     } catch (err: any) {
+      clearInterval(progressInterval);
       console.error('[Blink] Upload error:', err);
       setState(s => ({
         ...s, uploading: false,
@@ -175,14 +155,10 @@ export function useBlinkUpload() {
   }, [user]);
 
   const reset = useCallback(() => {
-    xhrRef.current?.abort();
     if (dataRef.current.previewUrl) URL.revokeObjectURL(dataRef.current.previewUrl);
     dataRef.current = {
       file: null, type: null, textOverlay: '', textOverlayColor: '#ffffff',
       caption: '', previewUrl: null, musicUrl: null, musicTitle: null,
     };
     setState(INITIAL_STATE);
-  }, []);
-
-  return { state, selectFile, setTextOverlay, setTextOverlayColor, setCaption, setMusic, publish, reset };
-}
+  },
