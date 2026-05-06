@@ -162,3 +162,14 @@ export function useBlinkUpload() {
     };
     setState(INITIAL_STATE);
   },
+   return {
+  state,
+  selectFile,
+  setTextOverlay,
+  setTextOverlayColor,
+  setCaption,
+  setMusic,
+  publish,
+  reset,
+};
+}
