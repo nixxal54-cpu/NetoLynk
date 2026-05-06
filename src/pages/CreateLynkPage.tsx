@@ -1,11 +1,9 @@
 // src/pages/CreateLynkPage.tsx
 import React, { useState, useRef, useCallback } from 'react';
-import { httpsCallable } from 'firebase/functions';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
-import { db, functions } from '../lib/firebase';
+import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { LynkCategory } from '../types/lynk';
-import axios from 'axios';
 
 type Visibility = 'public' | 'unlisted';
 type Step = 'pick' | 'details' | 'uploading' | 'done';
@@ -129,17 +127,31 @@ export default function CreateLynkPage() {
     setUploadProgress(0);
 
     try {
-      const initYTUpload = httpsCallable(functions, 'initYouTubeUpload');
-      const { data } = await initYTUpload({
-        fileName: file.name,
-        fileSize: file.size,
-        mimeType: file.type,
-        title: caption.trim() || file.name.replace(/\.[^/.]+$/, ''),
-        description: hashtags.map(t => `#${t}`).join(' '),
-        privacyStatus: visibility === 'public' ? 'public' : 'unlisted',
-      }) as { data: { uploadUrl: string; videoId: string } };
+      // Call Vercel serverless function — secrets never leave the server
+      const apiRes = await fetch('/api/initYouTubeUpload', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(import.meta.env.VITE_API_SECRET
+            ? { 'x-api-secret': import.meta.env.VITE_API_SECRET }
+            : {}),
+        },
+        body: JSON.stringify({
+          fileName:      file.name,
+          fileSize:      file.size,
+          mimeType:      file.type,
+          title:         caption.trim() || file.name.replace(/\.[^/.]+$/, ''),
+          description:   hashtags.map(t => `#${t}`).join(' '),
+          privacyStatus: visibility === 'public' ? 'public' : 'unlisted',
+        }),
+      });
 
-      const { uploadUrl, videoId } = data;
+      if (!apiRes.ok) {
+        const { error } = await apiRes.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(error || `Server error ${apiRes.status}`);
+      }
+
+      const { uploadUrl, videoId } = await apiRes.json() as { uploadUrl: string; videoId: string };
 
       await axios.put(uploadUrl, file, {
         headers: { 'Content-Type': file.type },
