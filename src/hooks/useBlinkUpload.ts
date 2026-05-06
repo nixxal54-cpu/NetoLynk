@@ -1,17 +1,10 @@
 /**
  * useBlinkUpload.ts
+ * Uses Cloudinary for storage — free, no Firebase Storage, no CORS issues.
  *
- * Uses Cloudinary for storage — completely free, no Firebase Storage needed,
- * no CORS issues, works from any domain including Vercel.
- *
- * SECURITY:
- *  - VITE_CLOUDINARY_CLOUD_NAME  → public, safe in frontend
- *  - VITE_CLOUDINARY_UPLOAD_PRESET → public unsigned preset, safe in frontend
- *  - API Secret is NEVER used in frontend code
- *
- * Add to Vercel Environment Variables:
- *   VITE_CLOUDINARY_CLOUD_NAME=dmwnywqes
- *   VITE_CLOUDINARY_UPLOAD_PRESET=your_preset_name  ← you'll get this next
+ * Cloud name and upload preset are NOT secrets — they are public values
+ * safe to ship in frontend code (Cloudinary's security model relies on
+ * upload preset restrictions, not on keeping these values secret).
  */
 import { useState, useCallback, useRef } from 'react';
 import { collection, addDoc } from 'firebase/firestore';
@@ -22,8 +15,10 @@ import { BlinkUploadState } from '../types/blink';
 const MAX_IMAGE_MB = 10;
 const MAX_VIDEO_MB = 50;
 
-const CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string;
-const UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string;
+// These are PUBLIC values — safe to hardcode in frontend.
+// Cloud name and unsigned preset cannot be used to read or delete files.
+const CLOUD_NAME = (import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string) || 'dmwnywqes';
+const UPLOAD_PRESET = (import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string) || 'blinks';
 
 const INITIAL_STATE: BlinkUploadState = {
   file: null, previewUrl: null, type: null,
@@ -90,24 +85,21 @@ export function useBlinkUpload() {
     const { file, type, textOverlay, textOverlayColor, caption, musicUrl, musicTitle } = dataRef.current;
     if (!user || !file || !type) return false;
 
-    if (!CLOUD_NAME || !UPLOAD_PRESET) {
-      setState(s => ({ ...s, error: 'Cloudinary not configured. Add VITE_CLOUDINARY_CLOUD_NAME and VITE_CLOUDINARY_UPLOAD_PRESET to Vercel environment variables.' }));
-      return false;
-    }
-
-    setState(s => ({ ...s, uploading: true, error: null, progress: 0 }));
+    setState(s => ({ ...s, uploading: true, error: null, progress: 1 }));
 
     try {
-      // ── Step 1: Upload to Cloudinary via XHR (real progress, no CORS) ──
+      // ── Step 1: Upload file to Cloudinary ──────────────────────────────
       const formData = new FormData();
       formData.append('file', file);
       formData.append('upload_preset', UPLOAD_PRESET);
       formData.append('folder', 'blinks');
-      // Tag with userId so you can manage files in Cloudinary dashboard
       formData.append('tags', `blink,${user.uid}`);
 
       const resourceType = type === 'video' ? 'video' : 'image';
       const uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/${resourceType}/upload`;
+
+      console.log('[Blink] Uploading to:', uploadUrl);
+      console.log('[Blink] Cloud:', CLOUD_NAME, 'Preset:', UPLOAD_PRESET);
 
       const mediaUrl = await new Promise<string>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
@@ -115,37 +107,43 @@ export function useBlinkUpload() {
 
         xhr.upload.addEventListener('progress', e => {
           if (e.lengthComputable) {
-            const pct = Math.round((e.loaded / e.total) * 95);
-            setState(s => ({ ...s, progress: pct }));
+            const pct = Math.round((e.loaded / e.total) * 90);
+            setState(s => ({ ...s, progress: Math.max(1, pct) }));
           }
         });
 
         xhr.addEventListener('load', () => {
+          console.log('[Blink] XHR status:', xhr.status, xhr.responseText.slice(0, 200));
           if (xhr.status >= 200 && xhr.status < 300) {
             const data = JSON.parse(xhr.responseText);
             resolve(data.secure_url);
           } else {
             try {
-              const err = JSON.parse(xhr.responseText);
-              reject(new Error(err?.error?.message ?? `Upload failed: HTTP ${xhr.status}`));
+              const errData = JSON.parse(xhr.responseText);
+              reject(new Error(errData?.error?.message ?? `Cloudinary error ${xhr.status}`));
             } catch {
               reject(new Error(`Upload failed: HTTP ${xhr.status}`));
             }
           }
         });
 
-        xhr.addEventListener('error', () => reject(new Error('Network error. Check your connection.')));
+        xhr.addEventListener('error', (e) => {
+          console.error('[Blink] XHR network error', e);
+          reject(new Error('Network error uploading to Cloudinary. Check your internet.'));
+        });
         xhr.addEventListener('abort', () => reject(new Error('Upload cancelled.')));
         xhr.timeout = 120_000;
-        xhr.addEventListener('timeout', () => reject(new Error('Upload timed out. Try a smaller file.')));
+        xhr.addEventListener('timeout', () => reject(new Error('Upload timed out. Try a smaller file or better connection.')));
 
         xhr.open('POST', uploadUrl);
+        // Do NOT set Content-Type — browser sets it with the correct boundary for FormData
         xhr.send(formData);
       });
 
-      setState(s => ({ ...s, progress: 97 }));
+      setState(s => ({ ...s, progress: 95 }));
+      console.log('[Blink] Cloudinary URL:', mediaUrl);
 
-      // ── Step 2: Save blink document to Firestore ──
+      // ── Step 2: Save to Firestore ──────────────────────────────────────
       const now = new Date();
       const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
 
@@ -171,7 +169,7 @@ export function useBlinkUpload() {
       return true;
 
     } catch (err: any) {
-      console.error('Blink upload error:', err);
+      console.error('[Blink] Upload error:', err);
       setState(s => ({
         ...s, uploading: false,
         error: err?.message ?? 'Upload failed. Please try again.',
