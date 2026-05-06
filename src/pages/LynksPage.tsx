@@ -1,59 +1,75 @@
-/**
- * LynksPage.tsx
- * Main Lynks experience: full-screen feed with For You / Following / Trending tabs.
- */
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Plus } from 'lucide-react';
-import { FeedType } from '../types/lynk';
-import LynkFeed from '../components/Lynks/LynkFeed';
-import { cn } from '../lib/utils';
-
-const TABS: { label: string; value: FeedType }[] = [
-  { label: 'For You',   value: 'forYou'    },
-  { label: 'Following', value: 'following' },
-  { label: 'Trending',  value: 'trending'  },
-];
+// src/pages/LynksPage.tsx
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { collection, getDocs, limit, query } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { Lynk } from '../types/lynk';
+import { buildMixedFeed } from '../lib/lynkRecommendation';
+import { LynkPlayer } from '../components/Lynks/LynkPlayer';
 
 export default function LynksPage() {
-  const [feedType, setFeedType] = useState<FeedType>('forYou');
-  const navigate = useNavigate();
+  const [feed, setFeed] = useState<Lynk[]>([]);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const seenIds = useRef<Set<string>>(new Set());
+
+  // Intersection Observer for scroll snapping active video
+  const observer = useRef<IntersectionObserver | null>(null);
+
+  const fetchBatch = useCallback(async () => {
+    // In production, this queries your backend or Firestore for the latest pool
+    const q = query(collection(db, 'lynks'), limit(50));
+    const snap = await getDocs(q);
+    const allLynks = snap.docs.map(d => ({ id: d.id, ...d.data() }) as Lynk);
+    
+    const newBatch = buildMixedFeed(allLynks, seenIds.current);
+    newBatch.forEach(l => seenIds.current.add(l.id));
+    setFeed(prev => [...prev, ...newBatch]);
+  }, []);
+
+  useEffect(() => {
+    fetchBatch();
+  },[fetchBatch]);
+
+  const onRefChange = useCallback((node: HTMLDivElement | null, index: number) => {
+    if (node && observer.current) observer.current.observe(node);
+  },[]);
+
+  useEffect(() => {
+    observer.current = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const idx = Number(entry.target.getAttribute('data-index'));
+          setActiveIndex(idx);
+          
+          // Preload next batch if we are near the end
+          if (idx >= feed.length - 3) fetchBatch();
+        }
+      });
+    }, { threshold: 0.6 });
+
+    return () => observer.current?.disconnect();
+  }, [feed.length, fetchBatch]);
 
   return (
-    // This page fills the entire available content area — black background for immersion
-    <div className="relative w-full bg-black overflow-hidden" style={{ height: '100dvh' }}>
+    <div className="h-[100dvh] w-full bg-black overflow-y-scroll snap-y snap-mandatory scrollbar-hide">
+      {feed.map((lynk, index) => {
+        // Smart loading: only render DOM nodes for active +/- 1 video
+        const isNearby = Math.abs(index - activeIndex) <= 1;
 
-      {/* Feed type toggle — pinned at top */}
-      <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-center gap-1 pt-safe pt-3 pointer-events-none">
-        <div className="flex bg-black/50 backdrop-blur-sm rounded-full px-1 py-1 pointer-events-auto">
-          {TABS.map((tab) => (
-            <button
-              key={tab.value}
-              onClick={() => setFeedType(tab.value)}
-              className={cn(
-                'px-4 py-1.5 rounded-full text-sm font-semibold transition-all',
-                feedType === tab.value
-                  ? 'bg-white text-black'
-                  : 'text-white/70 hover:text-white'
-              )}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Full-screen feed */}
-      <LynkFeed feedType={feedType} />
-
-      {/* Create Lynk FAB */}
-      <button
-        onClick={() => navigate('/create-lynk')}
-        className="absolute bottom-6 right-4 z-20 w-12 h-12 bg-primary text-primary-foreground rounded-full shadow-lg shadow-primary/40 flex items-center justify-center active:scale-95 transition-transform"
-        title="Create a Lynk"
-      >
-        <Plus className="w-6 h-6" />
-      </button>
+        return (
+          <div 
+            key={lynk.id} 
+            ref={(node) => onRefChange(node, index)}
+            data-index={index}
+            className="w-full h-full snap-start"
+          >
+            {isNearby ? (
+              <LynkPlayer lynk={lynk} isActive={activeIndex === index} />
+            ) : (
+              <div className="w-full h-full bg-black" /> // Placeholder to maintain scroll height
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
