@@ -1,21 +1,24 @@
 /**
  * useBlinkUpload.ts
  *
- * FIXES:
- *  1. publish() uses a stable ref — never re-creates on state change mid-upload
- *  2. 60-second upload timeout — prevents silent hanging forever
- *  3. setMusic() exposed so CreateBlinkPage can wire real music URL
+ * ROOT-CAUSE FIX for "stuck at 0%":
+ *   Firebase Storage blocks direct browser uploads from neto-lynk.vercel.app
+ *   due to CORS. Instead of using the Firebase Storage SDK (which opens a
+ *   WebSocket upload that CORS blocks), we:
+ *     1. Call our Cloud Function `getBlinkUploadUrl` to get a signed PUT URL
+ *     2. Upload the file directly via XHR PUT to that signed URL
+ *        → no CORS issues, real upload progress (0-100%)
+ *     3. Save the returned downloadUrl to Firestore as normal
  */
 import { useState, useCallback, useRef } from 'react';
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { collection, addDoc } from 'firebase/firestore';
-import { storage, db } from '../lib/firebase';
+import { httpsCallable } from 'firebase/functions';
+import { db, functions } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { BlinkUploadState } from '../types/blink';
 
 const MAX_IMAGE_MB = 10;
 const MAX_VIDEO_MB = 50;
-const UPLOAD_TIMEOUT_MS = 60_000; // 60 s
 
 const INITIAL_STATE: BlinkUploadState = {
   file: null, previewUrl: null, type: null,
@@ -23,11 +26,42 @@ const INITIAL_STATE: BlinkUploadState = {
   caption: '', progress: 0, uploading: false, error: null,
 };
 
+/** Upload a file to a signed URL via XHR — gives real progress events */
+function uploadViaSignedUrl(
+  signedUrl: string,
+  file: File,
+  onProgress: (pct: number) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+
+    signal.addEventListener('abort', () => { xhr.abort(); reject(new Error('Upload cancelled.')); });
+
+    xhr.upload.addEventListener('progress', e => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    });
+
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`Upload failed: HTTP ${xhr.status}`));
+    });
+
+    xhr.addEventListener('error', () => reject(new Error('Network error during upload.')));
+    xhr.addEventListener('timeout', () => reject(new Error('Upload timed out.')));
+
+    xhr.open('PUT', signedUrl);
+    xhr.setRequestHeader('Content-Type', file.type);
+    xhr.timeout = 120_000; // 2-minute timeout
+    xhr.send(file);
+  });
+}
+
 export function useBlinkUpload() {
   const { user } = useAuth();
   const [state, setState] = useState<BlinkUploadState>(INITIAL_STATE);
+  const abortRef = useRef<AbortController | null>(null);
 
-  // Stable ref — publish reads from here so it never needs `state` as a dep
   const dataRef = useRef({
     file: null as File | null,
     type: null as 'image' | 'video' | null,
@@ -83,36 +117,36 @@ export function useBlinkUpload() {
     if (!user || !file || !type) return false;
 
     setState(s => ({ ...s, uploading: true, error: null, progress: 0 }));
+    abortRef.current = new AbortController();
 
     try {
-      const fileId = `${user.uid}_${Date.now()}`;
+      // Step 1 — get a signed PUT URL from our Cloud Function
+      setState(s => ({ ...s, progress: 2 })); // show activity immediately
+
+      const getUploadUrl = httpsCallable<
+        { folder: string; filename: string; contentType: string },
+        { signedUrl: string; downloadUrl: string }
+      >(functions, 'getBlinkUploadUrl');
+
       const folder = type === 'video' ? 'blinks/videos' : 'blinks/images';
       const ext = file.name.split('.').pop() || (type === 'video' ? 'mp4' : 'jpg');
-      const storageRef = ref(storage, `${folder}/${fileId}.${ext}`);
-      const task = uploadBytesResumable(storageRef, file);
+      const filename = `${user.uid}_${Date.now()}.${ext}`;
 
-      const mediaUrl = await new Promise<string>((resolve, reject) => {
-        // Timeout guard — if no progress after 60s, abort
-        const timer = setTimeout(() => {
-          task.cancel();
-          reject(new Error('Upload timed out. Check your internet connection and try again.'));
-        }, UPLOAD_TIMEOUT_MS);
+      const { data } = await getUploadUrl({ folder, filename, contentType: file.type });
+      const { signedUrl, downloadUrl } = data;
 
-        task.on(
-          'state_changed',
-          snap => {
-            const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
-            setState(s => ({ ...s, progress: pct }));
-          },
-          err => { clearTimeout(timer); reject(err); },
-          async () => {
-            clearTimeout(timer);
-            try { resolve(await getDownloadURL(task.snapshot.ref)); }
-            catch (e) { reject(e); }
-          }
-        );
-      });
+      setState(s => ({ ...s, progress: 5 }));
 
+      // Step 2 — upload directly via XHR (real progress, no CORS)
+      await uploadViaSignedUrl(
+        signedUrl, file,
+        pct => setState(s => ({ ...s, progress: Math.round(5 + pct * 0.93) })), // 5→98%
+        abortRef.current.signal,
+      );
+
+      setState(s => ({ ...s, progress: 99 }));
+
+      // Step 3 — write Firestore document with the download URL
       const now = new Date();
       const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
 
@@ -121,7 +155,7 @@ export function useBlinkUpload() {
         username: user.username,
         userDisplayName: user.displayName,
         userProfileImage: user.profileImage ?? null,
-        mediaUrl,
+        mediaUrl: downloadUrl,
         type,
         caption: caption.trim() || null,
         textOverlay: textOverlay.trim() || null,
@@ -136,6 +170,7 @@ export function useBlinkUpload() {
 
       setState(s => ({ ...s, uploading: false, progress: 100 }));
       return true;
+
     } catch (err: any) {
       console.error('Blink upload error:', err);
       setState(s => ({
@@ -144,9 +179,10 @@ export function useBlinkUpload() {
       }));
       return false;
     }
-  }, [user]); // only user — never state
+  }, [user]);
 
   const reset = useCallback(() => {
+    abortRef.current?.abort();
     if (dataRef.current.previewUrl) URL.revokeObjectURL(dataRef.current.previewUrl);
     dataRef.current = {
       file: null, type: null, textOverlay: '', textOverlayColor: '#ffffff',
