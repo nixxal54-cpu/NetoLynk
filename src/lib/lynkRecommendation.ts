@@ -1,67 +1,44 @@
 // src/lib/lynkRecommendation.ts
-import { Lynk, LynkCategory } from '../types/lynk';
 
 class InteractionTracker {
-  private likedCategories: Record<string, number> = {};
+  private prefs: Record<string, number> = {};
 
-  // Track user preferences in memory/localStorage
-  markLiked(category: LynkCategory) {
-    this.likedCategories[category] = (this.likedCategories[category] || 0) + 1;
+  constructor() {
+    const saved = localStorage.getItem('netolynk_lynk_prefs');
+    if (saved) this.prefs = JSON.parse(saved);
   }
 
-  getPreferredCategories(): string[] {
-    return Object.entries(this.likedCategories)
+  trackCategory(category: string, weight: number) {
+    this.prefs[category] = (this.prefs[category] || 0) + weight;
+    localStorage.setItem('netolynk_lynk_prefs', JSON.stringify(this.prefs));
+  }
+
+  getPreferred(): string[] {
+    return Object.entries(this.prefs)
       .sort((a, b) => b[1] - a[1])
-      .map(([cat]) => cat)
-      .slice(0, 3); // Top 3 preferred
+      .map(([cat]) => cat).slice(0, 3);
   }
 }
 
-export const lynkInteractionTracker = new InteractionTracker();
+export const interactionTracker = new InteractionTracker();
 
-export function calculateLynkScore(lynk: Lynk): number {
-  const likes = lynk.likesCount || 0;
-  const comments = lynk.commentsCount || 0;
+export function calculateLynkScore(lynk: any): number {
+  const m = lynk.metrics;
   
-  // Recent boost: Posts under 24 hours old get a heavy multiplier
+  // A skip is defined as watchTime < 2 seconds
+  const watchTimeRatio = m.duration > 0 ? (m.totalWatchTime / m.duration) : 0;
+  
+  // Recency Decay (Max 24h)
   const hoursOld = (Date.now() - new Date(lynk.createdAt).getTime()) / 3600000;
-  const recencyMultiplier = hoursOld < 24 ? (24 - hoursOld) / 2 : 1;
+  const recencyMultiplier = hoursOld < 24 ? (24 - hoursOld) / 24 : 0.1;
 
-  // Base score = (Likes * 3) + (Comments * 5)
-  return ((likes * 3) + (comments * 5)) * recencyMultiplier + (lynk.boostScore || 0);
-}
+  // The Addictive Formula
+  const baseScore = 
+    (m.likes * 3) + 
+    (m.comments * 5) + 
+    (watchTimeRatio * 8) + 
+    (m.replays * 4) - 
+    (m.skips * 6);
 
-export function buildMixedFeed(allLynks: Lynk[], seenIds: Set<string>): Lynk[] {
-  const unseen = allLynks.filter(l => !seenIds.has(l.id));
-  
-  // Sort by calculated score
-  const scored = unseen.map(l => ({ ...l, score: calculateLynkScore(l) }));
-  scored.sort((a, b) => b.score - a.score);
-
-  const preferredCats = lynkInteractionTracker.getPreferredCategories();
-  
-  const preferredPool = scored.filter(l => preferredCats.includes(l.category));
-  const trendingPool = scored.filter(l => !preferredCats.includes(l.category));
-  const randomPool = [...unseen].sort(() => Math.random() - 0.5); // Fast shuffle
-
-  const feed: Lynk[] =[];
-  const targetSize = Math.min(10, unseen.length); // Batch size
-
-  // 50% Preferred, 30% Trending, 20% Random
-  const pCount = Math.floor(targetSize * 0.5);
-  const tCount = Math.floor(targetSize * 0.3);
-
-  feed.push(...preferredPool.splice(0, pCount));
-  feed.push(...trendingPool.splice(0, tCount));
-  
-  // Fill remainder with random to hit batch size
-  while (feed.length < targetSize && randomPool.length > 0) {
-    const randomLynk = randomPool.pop()!;
-    if (!feed.some(f => f.id === randomLynk.id)) {
-      feed.push(randomLynk);
-    }
-  }
-
-  // Final shuffle to blend them naturally
-  return feed.sort(() => Math.random() - 0.5);
+  return (baseScore * recencyMultiplier) + (lynk.boostScore || 0);
 }
