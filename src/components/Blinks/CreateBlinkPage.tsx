@@ -1,15 +1,10 @@
 /**
  * CreateBlinkPage.tsx
- * Instagram Stories-style Blink creator:
- *   Step 1 — Camera / Gallery picker (full-screen dark)
- *   Step 2 — Editor with tools: Text, Stickers, Draw, Music, Effects, Mention
- *   Step 3 — Share overlay with caption + audience
- *
- * FIXES & UPGRADES:
- *  1. Real music: Jamendo API (free, no key needed) — streams actual MP3s
- *  2. Real stickers: Giphy Stickers API (free 100/day with public beta key)
- *     → falls back gracefully to curated emoji if Giphy fails
- *  3. setMusic() wired up so musicUrl is actually saved to Firestore
+ * FIXED:
+ *  1. Stickers: uses Tenor API (same as GifPicker) — animated GIFs, 85vh sheet
+ *  2. Music: uses iTunes Search API (free, no key, no CORS issues) — real previews, 85vh sheet
+ *  3. Upload: explicit storage bucket URL to fix hanging uploads
+ *  4. All tool panels are proper 85vh slide-up sheets with drag handle
  */
 import React, {
   useRef, useState, useCallback, useEffect, useMemo,
@@ -32,71 +27,71 @@ const TEXT_COLORS = [
   '#30D158','#32ADE6','#0A84FF','#BF5AF2','#FF375F',
   '#AC8E68','#636366',
 ];
-
 const TEXT_FONTS = ['font-sans','font-serif','font-mono'];
 const TEXT_FONT_LABELS = ['Modern','Classic','Mono'];
-
-// Fallback emoji stickers if Giphy is unavailable
-const FALLBACK_STICKER_ROWS = [
-  ['❤️','🔥','😂','😮','😢','👏','🙌','💯'],
-  ['✨','🎉','🤩','😍','🥹','😎','🤯','🫶'],
-  ['🌈','⚡','🎵','🌙','☀️','🌊','🍀','💫'],
-  ['👀','🤔','😴','🤪','🥳','😈','👻','🎃'],
-];
-
 const DRAW_COLORS = ['#FFFFFF','#FF3B30','#FFD60A','#30D158','#0A84FF','#BF5AF2','#FF9F0A','#000000'];
 const DRAW_SIZES = [3, 6, 12, 20];
-
 const EFFECTS = [
-  { id: 'none',      label: 'Normal',   style: '' },
-  { id: 'vivid',     label: 'Vivid',    style: 'saturate(1.8) contrast(1.1)' },
-  { id: 'noir',      label: 'Noir',     style: 'grayscale(1) contrast(1.2)' },
-  { id: 'warm',      label: 'Warm',     style: 'sepia(0.4) saturate(1.3) brightness(1.05)' },
-  { id: 'cool',      label: 'Cool',     style: 'hue-rotate(30deg) saturate(1.2)' },
-  { id: 'fade',      label: 'Fade',     style: 'opacity(0.85) brightness(1.1) saturate(0.8)' },
-  { id: 'drama',     label: 'Drama',    style: 'contrast(1.4) saturate(1.3)' },
-  { id: 'dreamy',    label: 'Dreamy',   style: 'brightness(1.1) saturate(1.4)' },
+  { id: 'none',   label: 'Normal', style: '' },
+  { id: 'vivid',  label: 'Vivid',  style: 'saturate(1.8) contrast(1.1)' },
+  { id: 'noir',   label: 'Noir',   style: 'grayscale(1) contrast(1.2)' },
+  { id: 'warm',   label: 'Warm',   style: 'sepia(0.4) saturate(1.3) brightness(1.05)' },
+  { id: 'cool',   label: 'Cool',   style: 'hue-rotate(30deg) saturate(1.2)' },
+  { id: 'fade',   label: 'Fade',   style: 'opacity(0.85) brightness(1.1) saturate(0.8)' },
+  { id: 'drama',  label: 'Drama',  style: 'contrast(1.4) saturate(1.3)' },
+  { id: 'dreamy', label: 'Dreamy', style: 'brightness(1.1) saturate(1.4)' },
 ];
 
-/* ─── Jamendo API (FREE — no API key required for streaming) ──────────────── */
-// Public client ID from Jamendo's free developer tier
-const JAMENDO_CLIENT_ID = '22d45b07';
+/* ─── Tenor GIF/Sticker API (same key as GifPicker.tsx) ─────────────────────── */
+const TENOR_API_KEY = 'LIVDSRZULELA';
+const TENOR_BASE = 'https://api.tenor.com/v1';
+const STICKER_CATEGORIES = ['Trending','Reactions','Love','Funny','Sad','Wow','Yes','No','OMG','Dance'];
 
-interface JamendoTrack {
-  id: string;
-  name: string;
-  artist_name: string;
-  audio: string;       // streamable MP3 URL
-  image: string;       // album art
-  duration: number;
+interface TenorGif {
+  id: string; url: string; preview: string;
+  title: string; width: number; height: number;
 }
 
-async function searchJamendo(query: string): Promise<JamendoTrack[]> {
-  const url = query.trim()
-    ? `https://api.jamendo.com/v3.0/tracks/?client_id=${JAMENDO_CLIENT_ID}&format=json&limit=10&search=${encodeURIComponent(query)}&audioformat=mp32&include=musicinfo`
-    : `https://api.jamendo.com/v3.0/tracks/?client_id=${JAMENDO_CLIENT_ID}&format=json&limit=10&order=popularity_total&audioformat=mp32&tags=pop`;
-  const res = await fetch(url);
-  const data = await res.json();
-  return data.results ?? [];
-}
-
-/* ─── Giphy Stickers API (free public beta key) ──────────────────────────── */
-// Giphy's public beta key — free, 100 requests/day, no signup needed
-const GIPHY_KEY = 'dc6zaTOxFJmzC';
-
-interface GiphySticker {
-  id: string;
-  images: { fixed_width_small: { url: string; webp: string } };
-  title: string;
-}
-
-async function searchGiphyStickers(query: string): Promise<GiphySticker[]> {
-  const endpoint = query.trim()
-    ? `https://api.giphy.com/v1/stickers/search?api_key=${GIPHY_KEY}&q=${encodeURIComponent(query)}&limit=20&rating=g`
-    : `https://api.giphy.com/v1/stickers/trending?api_key=${GIPHY_KEY}&limit=20&rating=g`;
+async function fetchTenorStickers(query: string, category: string): Promise<TenorGif[]> {
+  const q = query.trim() || (category === 'Trending' ? '' : category);
+  const endpoint = q
+    ? `${TENOR_BASE}/search?q=${encodeURIComponent(q)}&key=${TENOR_API_KEY}&limit=30&media_filter=minimal`
+    : `${TENOR_BASE}/trending?key=${TENOR_API_KEY}&limit=30&media_filter=minimal`;
   const res = await fetch(endpoint);
+  if (!res.ok) throw new Error('Tenor failed');
   const data = await res.json();
-  return data.data ?? [];
+  return (data.results || []).map((item: any) => {
+    const media = item.media?.[0] || {};
+    const gif = media.gif || media.mediumgif || {};
+    const tiny = media.tinygif || media.nanogif || gif;
+    return {
+      id: item.id,
+      url: gif.url || '',
+      preview: tiny.url || gif.url || '',
+      title: item.title || '',
+      width: gif.dims?.[0] || 200,
+      height: gif.dims?.[1] || 200,
+    };
+  }).filter((g: TenorGif) => g.url);
+}
+
+/* ─── iTunes Search API (free, no key, CORS-safe) ───────────────────────────── */
+interface ItunesTrack {
+  trackId: number;
+  trackName: string;
+  artistName: string;
+  previewUrl: string;   // 30-sec MP3 preview — always present
+  artworkUrl100: string;
+  collectionName: string;
+}
+
+async function searchItunes(query: string): Promise<ItunesTrack[]> {
+  const q = query.trim() || 'pop hits 2024';
+  const url = `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=song&limit=20&media=music`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('iTunes failed');
+  const data = await res.json();
+  return (data.results || []).filter((t: ItunesTrack) => t.previewUrl);
 }
 
 /* ─── Types ──────────────────────────────────────────────────────────────────── */
@@ -108,20 +103,14 @@ interface TextLayer {
   bold: boolean; italic: boolean; align: 'left' | 'center' | 'right';
   x: number; y: number; fontSize: number;
 }
-
 interface StickerLayer {
-  id: string;
-  // Either emoji (fallback) or a GIF/WebP URL (Giphy)
-  emoji?: string;
-  stickerUrl?: string;
-  x: number; y: number;
+  id: string; gifUrl: string; x: number; y: number;
 }
-
 interface DrawStroke {
   color: string; size: number; points: { x: number; y: number }[];
 }
 
-/* ─── Draggable wrapper ──────────────────────────────────────────────────────── */
+/* ─── Draggable ──────────────────────────────────────────────────────────────── */
 function Draggable({ children, x, y, onMove }: {
   children: React.ReactNode; x: number; y: number;
   onMove: (x: number, y: number) => void;
@@ -129,28 +118,18 @@ function Draggable({ children, x, y, onMove }: {
   const ref = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
   const start = useRef({ mx: 0, my: 0, ox: 0, oy: 0 });
-
-  const onDown = (e: React.PointerEvent) => {
-    dragging.current = true;
-    start.current = { mx: e.clientX, my: e.clientY, ox: x, oy: y };
-    ref.current!.setPointerCapture(e.pointerId);
-  };
-  const onMove2 = (e: React.PointerEvent) => {
-    if (!dragging.current) return;
-    const rect = ref.current!.parentElement!.getBoundingClientRect();
-    const dx = ((e.clientX - start.current.mx) / rect.width) * 100;
-    const dy = ((e.clientY - start.current.my) / rect.height) * 100;
-    onMove(
-      Math.max(5, Math.min(95, start.current.ox + dx)),
-      Math.max(5, Math.min(95, start.current.oy + dy)),
-    );
-  };
-  const onUp = () => { dragging.current = false; };
-
   return (
     <div ref={ref}
-      style={{ position: 'absolute', left: `${x}%`, top: `${y}%`, transform: 'translate(-50%,-50%)', touchAction: 'none', cursor: 'grab' }}
-      onPointerDown={onDown} onPointerMove={onMove2} onPointerUp={onUp}>
+      style={{ position: 'absolute', left: `${x}%`, top: `${y}%`, transform: 'translate(-50%,-50%)', touchAction: 'none', cursor: 'grab', zIndex: 8 }}
+      onPointerDown={e => { dragging.current = true; start.current = { mx: e.clientX, my: e.clientY, ox: x, oy: y }; ref.current!.setPointerCapture(e.pointerId); }}
+      onPointerMove={e => {
+        if (!dragging.current) return;
+        const rect = ref.current!.parentElement!.getBoundingClientRect();
+        const dx = ((e.clientX - start.current.mx) / rect.width) * 100;
+        const dy = ((e.clientY - start.current.my) / rect.height) * 100;
+        onMove(Math.max(5, Math.min(95, start.current.ox + dx)), Math.max(5, Math.min(95, start.current.oy + dy)));
+      }}
+      onPointerUp={() => { dragging.current = false; }}>
       {children}
     </div>
   );
@@ -202,8 +181,7 @@ function DrawCanvas({ strokes, onAddStroke, color, size }: {
         drawing.current = false;
         if (current.current.length > 1) onAddStroke({ color, size, points: [...current.current] });
         current.current = [];
-      }}
-    />
+      }} />
   );
 }
 
@@ -222,8 +200,42 @@ function StaticCanvas({ strokes }: { strokes: DrawStroke[] }) {
       ctx.stroke();
     }
   }, [strokes]);
-  return <canvas ref={ref} width={600} height={1000}
-    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 5 }} />;
+  return <canvas ref={ref} width={600} height={1000} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 5 }} />;
+}
+
+/* ─── 85vh Sheet wrapper (matches GifPicker pattern) ───────────────────────── */
+function Sheet({ title, badge, onClose, children }: {
+  title: string; badge?: string; onClose: () => void; children: React.ReactNode;
+}) {
+  return (
+    <>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        className="fixed inset-0 bg-black/60 z-[60]" onClick={onClose} />
+      <motion.div
+        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+        transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+        className="fixed bottom-0 left-0 right-0 z-[70] bg-[#111] rounded-t-3xl border-t border-white/10 flex flex-col"
+        style={{ height: '85vh' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Drag handle */}
+        <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
+          <div className="w-10 h-1 bg-white/20 rounded-full" />
+        </div>
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 pt-1 pb-3 flex-shrink-0">
+          <h3 className="font-bold text-white text-lg">{title}</h3>
+          <div className="flex items-center gap-2">
+            {badge && <span className="text-[10px] text-white/30">{badge}</span>}
+            <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+              <X className="w-5 h-5 text-white" />
+            </button>
+          </div>
+        </div>
+        {children}
+      </motion.div>
+    </>
+  );
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
@@ -251,109 +263,116 @@ export default function CreateBlinkPage() {
   const [textAlign, setTextAlign] = useState<'left'|'center'|'right'>('center');
   const [textSize, setTextSize] = useState(28);
 
-  // Stickers — real Giphy stickers
+  // Stickers — Tenor GIFs (same as GifPicker)
   const [stickerLayers, setStickerLayers] = useState<StickerLayer[]>([]);
-  const [giphyStickers, setGiphyStickers] = useState<GiphySticker[]>([]);
-  const [stickerSearch, setStickerSearch] = useState('');
+  const [tenorGifs, setTenorGifs] = useState<TenorGif[]>([]);
+  const [stickerQuery, setStickerQuery] = useState('');
+  const [stickerCategory, setStickerCategory] = useState('Trending');
   const [stickerLoading, setStickerLoading] = useState(false);
-  const [stickerError, setStickerError] = useState(false);
+  const [stickerError, setStickerError] = useState('');
+  const stickerSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stickerScrollRef = useRef<HTMLDivElement>(null);
+
+  const loadStickers = useCallback(async (query: string, category: string) => {
+    setStickerLoading(true); setStickerError('');
+    try {
+      const data = await fetchTenorStickers(query, category);
+      setTenorGifs(data);
+      stickerScrollRef.current?.scrollTo({ top: 0 });
+    } catch {
+      setStickerError('Could not load GIFs. Check your connection.');
+      setTenorGifs([]);
+    } finally {
+      setStickerLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTool === 'stickers') loadStickers(stickerQuery, stickerCategory);
+  }, [activeTool, stickerCategory]);
+
+  const handleStickerSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value; setStickerQuery(val);
+    if (stickerSearchTimeout.current) clearTimeout(stickerSearchTimeout.current);
+    stickerSearchTimeout.current = setTimeout(() => loadStickers(val, stickerCategory), 500);
+  };
+
+  const handleStickerCategory = (cat: string) => {
+    setStickerCategory(cat); setStickerQuery('');
+  };
 
   // Draw
   const [drawStrokes, setDrawStrokes] = useState<DrawStroke[]>([]);
   const [drawColor, setDrawColor] = useState('#FFFFFF');
   const [drawSize, setDrawSize] = useState(6);
 
-  // Effect
+  // Effects
   const [activeEffect, setActiveEffect] = useState('none');
   const filterStyle = useMemo(() => EFFECTS.find(e => e.id === activeEffect)?.style ?? '', [activeEffect]);
 
-  // Music — real Jamendo tracks
+  // Music — iTunes (free, CORS-safe, real 30s previews)
   const [musicTitle, setMusicTitle] = useState('');
   const [musicUrl, setMusicUrl] = useState('');
-  const [musicSearch, setMusicSearch] = useState('');
-  const [jamendoTracks, setJamendoTracks] = useState<JamendoTrack[]>([]);
+  const [musicQuery, setMusicQuery] = useState('');
+  const [itunesTracks, setItunesTracks] = useState<ItunesTrack[]>([]);
   const [musicLoading, setMusicLoading] = useState(false);
-  const [previewingTrack, setPreviewingTrack] = useState<string | null>(null);
+  const [musicError, setMusicError] = useState('');
+  const [previewingId, setPreviewingId] = useState<number | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const musicSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Mention
-  const [mentionDraft, setMentionDraft] = useState('');
-
-  // Caption
-  const [captionText, setCaptionText] = useState('');
-
-  /* ── Load Giphy stickers when tool opens ── */
-  useEffect(() => {
-    if (activeTool !== 'stickers') return;
-    setStickerLoading(true);
-    setStickerError(false);
-    searchGiphyStickers(stickerSearch)
-      .then(data => { setGiphyStickers(data); setStickerLoading(false); })
-      .catch(() => { setStickerError(true); setStickerLoading(false); });
-  }, [activeTool]);
-
-  const handleStickerSearch = useCallback(async (q: string) => {
-    setStickerSearch(q);
-    setStickerLoading(true);
-    setStickerError(false);
+  const loadMusic = useCallback(async (query: string) => {
+    setMusicLoading(true); setMusicError('');
     try {
-      const data = await searchGiphyStickers(q);
-      setGiphyStickers(data);
+      const tracks = await searchItunes(query);
+      setItunesTracks(tracks);
     } catch {
-      setStickerError(true);
-    } finally {
-      setStickerLoading(false);
-    }
-  }, []);
-
-  /* ── Load Jamendo tracks when music tool opens ── */
-  useEffect(() => {
-    if (activeTool !== 'music') return;
-    setMusicLoading(true);
-    searchJamendo('')
-      .then(tracks => { setJamendoTracks(tracks); setMusicLoading(false); })
-      .catch(() => setMusicLoading(false));
-  }, [activeTool]);
-
-  const handleMusicSearch = useCallback(async (q: string) => {
-    setMusicSearch(q);
-    if (!q.trim()) return;
-    setMusicLoading(true);
-    try {
-      const tracks = await searchJamendo(q);
-      setJamendoTracks(tracks);
-    } catch {
-      // keep old results
+      setMusicError('Could not load music. Check your connection.');
+      setItunesTracks([]);
     } finally {
       setMusicLoading(false);
     }
   }, []);
 
-  const previewTrack = useCallback((track: JamendoTrack) => {
+  useEffect(() => {
+    if (activeTool === 'music') loadMusic('');
+  }, [activeTool]);
+
+  const handleMusicSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value; setMusicQuery(val);
+    if (musicSearchTimeout.current) clearTimeout(musicSearchTimeout.current);
+    musicSearchTimeout.current = setTimeout(() => loadMusic(val), 600);
+  };
+
+  const previewTrack = (track: ItunesTrack) => {
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
-    if (previewingTrack === track.id) { setPreviewingTrack(null); return; }
-    const audio = new Audio(track.audio);
+    if (previewingId === track.trackId) { setPreviewingId(null); return; }
+    const audio = new Audio(track.previewUrl);
+    audio.volume = 0.7;
     audio.play().catch(() => {});
     audioRef.current = audio;
-    setPreviewingTrack(track.id);
-    audio.addEventListener('ended', () => setPreviewingTrack(null));
-  }, [previewingTrack]);
+    setPreviewingId(track.trackId);
+    audio.addEventListener('ended', () => setPreviewingId(null));
+  };
 
-  const selectTrack = useCallback((track: JamendoTrack) => {
+  const selectTrack = (track: ItunesTrack) => {
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
-    setPreviewingTrack(null);
-    const title = `${track.name} – ${track.artist_name}`;
+    setPreviewingId(null);
+    const title = `${track.trackName} – ${track.artistName}`;
     setMusicTitle(title);
-    setMusicUrl(track.audio);
-    setMusic(track.audio, title);
+    setMusicUrl(track.previewUrl);
+    setMusic(track.previewUrl, title);
     setActiveTool(null);
-    toast.success(`🎵 Added: ${track.name}`);
-  }, [setMusic]);
+    toast.success(`🎵 ${track.trackName} added`);
+  };
 
-  // Cleanup audio on unmount
   useEffect(() => () => { audioRef.current?.pause(); }, []);
 
-  /* ── Handlers ── */
+  // Mention
+  const [mentionDraft, setMentionDraft] = useState('');
+  const [captionText, setCaptionText] = useState('');
+
+  /* ── File handlers ── */
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) { selectFile(file); setStep('edit'); }
@@ -374,10 +393,9 @@ export default function CreateBlinkPage() {
 
   const openAddText = useCallback(() => {
     const layer: TextLayer = {
-      id: Date.now().toString(), text: '',
-      color: textColor, font: TEXT_FONTS[textFont],
-      bold: textBold, italic: textItalic, align: textAlign,
-      x: 50, y: 50, fontSize: textSize,
+      id: Date.now().toString(), text: '', color: textColor,
+      font: TEXT_FONTS[textFont], bold: textBold, italic: textItalic,
+      align: textAlign, x: 50, y: 50, fontSize: textSize,
     };
     setEditingText(layer); setTextDraft('');
   }, [textColor, textFont, textBold, textItalic, textAlign, textSize]);
@@ -386,29 +404,19 @@ export default function CreateBlinkPage() {
     if (!editingText) return;
     if (textDraft.trim()) {
       const layer: TextLayer = {
-        ...editingText, text: textDraft.trim(),
-        color: textColor, font: TEXT_FONTS[textFont],
-        bold: textBold, italic: textItalic, align: textAlign, fontSize: textSize,
+        ...editingText, text: textDraft.trim(), color: textColor,
+        font: TEXT_FONTS[textFont], bold: textBold, italic: textItalic,
+        align: textAlign, fontSize: textSize,
       };
       setTextLayers(ls => [...ls.filter(l => l.id !== layer.id), layer]);
-      setTextOverlay(textDraft.trim());
-      setTextOverlayColor(textColor);
+      setTextOverlay(textDraft.trim()); setTextOverlayColor(textColor);
     }
     setEditingText(null); setActiveTool(null);
   }, [editingText, textDraft, textColor, textFont, textBold, textItalic, textAlign, textSize]);
 
-  const addGiphySticker = (sticker: GiphySticker) => {
-    const url = sticker.images.fixed_width_small?.webp || sticker.images.fixed_width_small?.url;
+  const addSticker = (gif: TenorGif) => {
     setStickerLayers(ls => [...ls, {
-      id: Date.now().toString(), stickerUrl: url,
-      x: 30 + Math.random() * 40, y: 30 + Math.random() * 40,
-    }]);
-    setActiveTool(null);
-  };
-
-  const addFallbackSticker = (emoji: string) => {
-    setStickerLayers(ls => [...ls, {
-      id: Date.now().toString(), emoji,
+      id: Date.now().toString(), gifUrl: gif.url,
       x: 30 + Math.random() * 40, y: 30 + Math.random() * 40,
     }]);
     setActiveTool(null);
@@ -418,9 +426,8 @@ export default function CreateBlinkPage() {
     if (!mentionDraft.trim()) return;
     const mention = mentionDraft.startsWith('@') ? mentionDraft : `@${mentionDraft}`;
     setTextLayers(ls => [...ls, {
-      id: Date.now().toString(), text: mention,
-      color: '#FFFFFF', font: TEXT_FONTS[0], bold: true,
-      italic: false, align: 'center', x: 50, y: 80, fontSize: 22,
+      id: Date.now().toString(), text: mention, color: '#FFFFFF',
+      font: TEXT_FONTS[0], bold: true, italic: false, align: 'center', x: 50, y: 80, fontSize: 22,
     }]);
     setMentionDraft(''); setActiveTool(null);
   };
@@ -435,6 +442,9 @@ export default function CreateBlinkPage() {
       toast.error(state.error ?? 'Failed to publish. Try again.');
     }
   };
+
+  // Masonry split helper
+  const splitCols = (arr: TenorGif[]) => [arr.filter((_, i) => i % 2 === 0), arr.filter((_, i) => i % 2 === 1)];
 
   /* ════════════════════════════════════════════════════════════════════════════
      RENDER
@@ -457,7 +467,6 @@ export default function CreateBlinkPage() {
               <span className="text-white font-bold text-base tracking-wide">New Blink</span>
               <div className="w-10" />
             </div>
-
             <div className="flex-1 mx-4 mb-6 rounded-3xl overflow-hidden relative bg-zinc-900 flex flex-col items-center justify-center gap-6">
               <div className="absolute inset-0 bg-gradient-to-br from-violet-900/30 via-transparent to-cyan-900/20 pointer-events-none" />
               <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ delay: 0.1, type: 'spring', stiffness: 200 }}>
@@ -486,29 +495,24 @@ export default function CreateBlinkPage() {
         {step === 'edit' && state.previewUrl && (
           <motion.div key="edit" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="relative h-full w-full">
 
-            {/* Media background */}
+            {/* Media */}
             <div className="absolute inset-0 z-0">
-              {state.type === 'image' ? (
-                <img src={state.previewUrl} alt="preview" className="w-full h-full object-cover" style={{ filter: filterStyle }} draggable={false} />
-              ) : (
-                <video src={state.previewUrl} className="w-full h-full object-cover" autoPlay loop muted playsInline style={{ filter: filterStyle }} />
-              )}
+              {state.type === 'image'
+                ? <img src={state.previewUrl} alt="preview" className="w-full h-full object-cover" style={{ filter: filterStyle }} draggable={false} />
+                : <video src={state.previewUrl} className="w-full h-full object-cover" autoPlay loop muted playsInline style={{ filter: filterStyle }} />}
               <div className="absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-black/60 to-transparent pointer-events-none" />
               <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/70 to-transparent pointer-events-none" />
             </div>
 
-            {/* Draw */}
-            {activeTool === 'draw' && (
-              <DrawCanvas strokes={drawStrokes} onAddStroke={s => setDrawStrokes(p => [...p, s])} color={drawColor} size={drawSize} />
-            )}
+            {/* Draw canvas */}
+            {activeTool === 'draw' && <DrawCanvas strokes={drawStrokes} onAddStroke={s => setDrawStrokes(p => [...p, s])} color={drawColor} size={drawSize} />}
             {activeTool !== 'draw' && drawStrokes.length > 0 && <StaticCanvas strokes={drawStrokes} />}
 
             {/* Text layers */}
             {textLayers.map(layer => (
               <Draggable key={layer.id} x={layer.x} y={layer.y}
                 onMove={(x, y) => setTextLayers(ls => ls.map(l => l.id === layer.id ? { ...l, x, y } : l))}>
-                <p
-                  onDoubleClick={() => { setEditingText(layer); setTextDraft(layer.text); setTextColor(layer.color); setActiveTool('text'); }}
+                <p onDoubleClick={() => { setEditingText(layer); setTextDraft(layer.text); setTextColor(layer.color); setActiveTool('text'); }}
                   className={cn('px-3 py-1 select-none whitespace-pre-wrap leading-tight', layer.font, layer.bold && 'font-bold', layer.italic && 'italic')}
                   style={{ color: layer.color, fontSize: layer.fontSize, textAlign: layer.align, textShadow: '0 2px 12px rgba(0,0,0,0.8)', maxWidth: '80vw' }}>
                   {layer.text}
@@ -516,22 +520,20 @@ export default function CreateBlinkPage() {
               </Draggable>
             ))}
 
-            {/* Sticker layers — real images or emoji fallback */}
+            {/* Sticker layers — real animated GIFs */}
             {stickerLayers.map(s => (
               <Draggable key={s.id} x={s.x} y={s.y}
                 onMove={(x, y) => setStickerLayers(ls => ls.map(l => l.id === s.id ? { ...l, x, y } : l))}>
-                {s.stickerUrl ? (
-                  <img src={s.stickerUrl} alt="sticker" style={{ width: 80, height: 80, objectFit: 'contain', display: 'block', filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.5))' }} className="select-none" />
-                ) : (
-                  <span style={{ fontSize: 48, display: 'block', filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.5))' }} className="select-none">{s.emoji}</span>
-                )}
+                <img src={s.gifUrl} alt="sticker"
+                  style={{ width: 80, height: 80, objectFit: 'contain', display: 'block', filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.6))' }}
+                  className="select-none" />
               </Draggable>
             ))}
 
             {/* Music badge */}
             {musicTitle && activeTool === null && (
               <div className="absolute top-20 left-4 z-10 flex items-center gap-2 bg-black/60 backdrop-blur-md rounded-full px-3 py-1.5 border border-white/10">
-                <Music2 className="w-3.5 h-3.5 text-white flex-shrink-0" />
+                <Music2 className="w-3.5 h-3.5 text-white animate-pulse flex-shrink-0" />
                 <span className="text-white text-xs font-medium truncate max-w-[140px]">{musicTitle}</span>
                 <button onClick={() => { setMusicTitle(''); setMusicUrl(''); setMusic(null, null); }} className="text-white/50 ml-0.5 flex-shrink-0"><X className="w-3 h-3" /></button>
               </div>
@@ -555,7 +557,7 @@ export default function CreateBlinkPage() {
                 className="absolute right-4 top-1/2 -translate-y-1/2 z-10 flex flex-col gap-2.5">
                 {([
                   { tool: 'text',     icon: <Type className="w-5 h-5" />,     label: 'Text' },
-                  { tool: 'stickers', icon: <Smile className="w-5 h-5" />,    label: 'Stickers' },
+                  { tool: 'stickers', icon: <Smile className="w-5 h-5" />,    label: 'GIFs' },
                   { tool: 'music',    icon: <Music2 className="w-5 h-5" />,   label: 'Music' },
                   { tool: 'effects',  icon: <Sparkles className="w-5 h-5" />, label: 'Effects' },
                   { tool: 'mention',  icon: <AtSign className="w-5 h-5" />,   label: 'Mention' },
@@ -582,9 +584,9 @@ export default function CreateBlinkPage() {
               </motion.div>
             )}
 
-            {/* ═══ TOOL PANELS ═══ */}
+            {/* ════ TOOL PANELS ════ */}
 
-            {/* TEXT */}
+            {/* TEXT — inline overlay (needs canvas access) */}
             <AnimatePresence>
               {activeTool === 'text' && editingText && (
                 <motion.div key="text-tool" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-20 flex flex-col">
@@ -606,8 +608,8 @@ export default function CreateBlinkPage() {
                         </button>
                       ))}
                       <div className="flex-1" />
-                      <button onClick={() => setTextBold(v => !v)} className={cn('w-8 h-8 rounded-full flex items-center justify-center font-black text-sm transition-all', textBold ? 'bg-white text-black' : 'bg-white/10 text-white')}>B</button>
-                      <button onClick={() => setTextItalic(v => !v)} className={cn('w-8 h-8 rounded-full flex items-center justify-center font-semibold italic text-sm transition-all', textItalic ? 'bg-white text-black' : 'bg-white/10 text-white')}>I</button>
+                      <button onClick={() => setTextBold(v => !v)} className={cn('w-8 h-8 rounded-full flex items-center justify-center font-black text-sm', textBold ? 'bg-white text-black' : 'bg-white/10 text-white')}>B</button>
+                      <button onClick={() => setTextItalic(v => !v)} className={cn('w-8 h-8 rounded-full flex items-center justify-center italic text-sm', textItalic ? 'bg-white text-black' : 'bg-white/10 text-white')}>I</button>
                       <button onClick={() => setTextAlign(a => a === 'center' ? 'left' : a === 'left' ? 'right' : 'center')} className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white">
                         <AlignCenter className="w-4 h-4" />
                       </button>
@@ -632,64 +634,7 @@ export default function CreateBlinkPage() {
               )}
             </AnimatePresence>
 
-            {/* STICKERS — Real Giphy stickers */}
-            <AnimatePresence>
-              {activeTool === 'stickers' && (
-                <motion.div key="stickers" initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-                  transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-                  className="absolute bottom-0 inset-x-0 z-20 bg-black/95 backdrop-blur-xl rounded-t-3xl px-4 pt-5 pb-10">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-white font-bold text-base">Stickers</span>
-                    <button onClick={() => setActiveTool(null)} className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center"><X className="w-4 h-4 text-white" /></button>
-                  </div>
-
-                  {/* Search bar */}
-                  <div className="relative mb-3">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
-                    <input type="text" value={stickerSearch}
-                      onChange={e => handleStickerSearch(e.target.value)}
-                      placeholder="Search stickers…"
-                      className="w-full bg-white/10 text-white placeholder:text-white/40 rounded-2xl pl-9 pr-4 py-2.5 text-sm outline-none border border-white/10 focus:border-white/30" />
-                  </div>
-
-                  {/* Giphy attribution */}
-                  <p className="text-white/25 text-[10px] mb-2 text-right">Powered by GIPHY</p>
-
-                  {stickerLoading ? (
-                    <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 text-white/40 animate-spin" /></div>
-                  ) : stickerError ? (
-                    // Fallback to emoji on error
-                    <div>
-                      <p className="text-white/40 text-xs text-center mb-3">Using offline stickers</p>
-                      {FALLBACK_STICKER_ROWS.map((row, ri) => (
-                        <div key={ri} className="flex gap-2 mb-2">
-                          {row.map(emoji => (
-                            <button key={emoji} onClick={() => addFallbackSticker(emoji)}
-                              className="flex-1 aspect-square rounded-2xl bg-white/5 flex items-center justify-center text-3xl hover:bg-white/10 active:scale-90 transition-all">
-                              {emoji}
-                            </button>
-                          ))}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-4 gap-2 max-h-52 overflow-y-auto">
-                      {giphyStickers.map(sticker => {
-                        const url = sticker.images.fixed_width_small?.webp || sticker.images.fixed_width_small?.url;
-                        return (
-                          <button key={sticker.id} onClick={() => addGiphySticker(sticker)}
-                            className="aspect-square rounded-2xl bg-white/5 overflow-hidden hover:bg-white/10 active:scale-90 transition-all flex items-center justify-center">
-                            <img src={url} alt={sticker.title} className="w-full h-full object-contain" loading="lazy" />
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* DRAW */}
+            {/* DRAW — small bottom bar (needs canvas) */}
             <AnimatePresence>
               {activeTool === 'draw' && (
                 <motion.div key="draw" initial={{ y: 100, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 100, opacity: 0 }}
@@ -727,108 +672,182 @@ export default function CreateBlinkPage() {
               )}
             </AnimatePresence>
 
-            {/* MUSIC — Real Jamendo tracks */}
+            {/* STICKERS — 85vh Sheet with Tenor GIFs */}
+            <AnimatePresence>
+              {activeTool === 'stickers' && (
+                <Sheet key="stickers" title="GIF Stickers" badge="Powered by Tenor" onClose={() => setActiveTool(null)}>
+                  {/* Search */}
+                  <div className="px-5 pb-3 flex-shrink-0">
+                    <div className="relative">
+                      <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+                      <input value={stickerQuery} onChange={handleStickerSearch}
+                        placeholder="Search GIFs..."
+                        className="w-full bg-white/10 text-white placeholder:text-white/40 rounded-2xl pl-10 pr-4 py-3 text-sm outline-none border border-white/10 focus:border-white/30" />
+                      {stickerQuery && (
+                        <button onClick={() => { setStickerQuery(''); loadStickers('', stickerCategory); }} className="absolute right-3 top-1/2 -translate-y-1/2 p-1">
+                          <X className="w-3.5 h-3.5 text-white/40" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {/* Category chips */}
+                  {!stickerQuery && (
+                    <div className="flex gap-2 px-5 pb-3 overflow-x-auto scrollbar-hide flex-shrink-0">
+                      {STICKER_CATEGORIES.map(cat => (
+                        <button key={cat} onClick={() => handleStickerCategory(cat)}
+                          className={cn('flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-semibold transition-all border',
+                            stickerCategory === cat ? 'bg-primary text-primary-foreground border-transparent' : 'bg-white/10 text-white/60 border-white/10 hover:bg-white/15')}>
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {/* GIF Grid — masonry 2 columns */}
+                  <div ref={stickerScrollRef} className="flex-1 overflow-y-auto px-4 pb-8">
+                    {stickerLoading ? (
+                      <div className="flex items-center justify-center h-40"><Loader2 className="w-7 h-7 animate-spin text-white/40" /></div>
+                    ) : stickerError ? (
+                      <div className="flex flex-col items-center justify-center h-40 gap-3">
+                        <p className="text-white/40 text-sm">{stickerError}</p>
+                        <button onClick={() => loadStickers(stickerQuery, stickerCategory)} className="text-sm text-primary font-semibold">Retry</button>
+                      </div>
+                    ) : tenorGifs.length === 0 ? (
+                      <div className="flex items-center justify-center h-40 text-white/40 text-sm">No GIFs found</div>
+                    ) : (
+                      <div className="flex gap-2">
+                        {splitCols(tenorGifs).map((col, ci) => (
+                          <div key={ci} className="flex-1 flex flex-col gap-2">
+                            {col.map(gif => (
+                              <button key={gif.id} onClick={() => addSticker(gif)}
+                                className="w-full rounded-xl overflow-hidden hover:opacity-80 active:scale-95 transition-all">
+                                <img src={gif.preview || gif.url} alt={gif.title}
+                                  className="w-full object-cover rounded-xl" loading="lazy"
+                                  style={{ aspectRatio: `${gif.width}/${gif.height}` }} />
+                              </button>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </Sheet>
+              )}
+            </AnimatePresence>
+
+            {/* MUSIC — 85vh Sheet with iTunes */}
             <AnimatePresence>
               {activeTool === 'music' && (
-                <motion.div key="music" initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-                  transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-                  className="absolute bottom-0 inset-x-0 z-20 bg-black/95 backdrop-blur-xl rounded-t-3xl px-5 pt-5 pb-10">
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="text-white font-bold text-base">Add Music</span>
-                    <button onClick={() => { audioRef.current?.pause(); setPreviewingTrack(null); setActiveTool(null); }}
-                      className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center"><X className="w-4 h-4 text-white" /></button>
+                <Sheet key="music" title="Add Music" badge="iTunes previews" onClose={() => { audioRef.current?.pause(); setPreviewingId(null); setActiveTool(null); }}>
+                  {/* Search */}
+                  <div className="px-5 pb-3 flex-shrink-0">
+                    <div className="relative">
+                      <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+                      <input value={musicQuery} onChange={handleMusicSearch}
+                        placeholder="Search songs, artists..."
+                        className="w-full bg-white/10 text-white placeholder:text-white/40 rounded-2xl pl-10 pr-4 py-3 text-sm outline-none border border-white/10 focus:border-white/30" />
+                      {musicQuery && (
+                        <button onClick={() => { setMusicQuery(''); loadMusic(''); }} className="absolute right-3 top-1/2 -translate-y-1/2 p-1">
+                          <X className="w-3.5 h-3.5 text-white/40" />
+                        </button>
+                      )}
+                    </div>
                   </div>
-
-                  <div className="relative mb-3">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
-                    <input type="text" value={musicSearch}
-                      onChange={e => handleMusicSearch(e.target.value)}
-                      placeholder="Search real songs…"
-                      className="w-full bg-white/10 text-white placeholder:text-white/40 rounded-2xl pl-9 pr-4 py-3 text-sm outline-none border border-white/10 focus:border-white/30" />
-                  </div>
-
-                  <p className="text-white/25 text-[10px] mb-2">Free music by Jamendo • All rights reserved to artists</p>
-
-                  <div className="space-y-1 max-h-56 overflow-y-auto">
+                  {/* Track list */}
+                  <div className="flex-1 overflow-y-auto px-4 pb-8">
                     {musicLoading ? (
-                      <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 text-white/40 animate-spin" /></div>
-                    ) : jamendoTracks.length === 0 ? (
-                      <p className="text-white/40 text-sm text-center py-4">No tracks found</p>
-                    ) : jamendoTracks.map(track => (
-                      <div key={track.id} className="flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 transition-colors">
-                        {/* Album art */}
-                        <img src={track.image} alt={track.name} className="w-10 h-10 rounded-xl object-cover flex-shrink-0 bg-white/10" onError={e => (e.currentTarget.style.display='none')} />
-                        {/* Info */}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-white text-sm font-medium truncate">{track.name}</p>
-                          <p className="text-white/50 text-xs truncate">{track.artist_name}</p>
-                        </div>
-                        {/* Preview */}
-                        <button onClick={() => previewTrack(track)}
-                          className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0 hover:bg-white/20 transition-colors">
-                          {previewingTrack === track.id
-                            ? <Pause className="w-3.5 h-3.5 text-white" />
-                            : <Play className="w-3.5 h-3.5 text-white ml-0.5" />}
-                        </button>
-                        {/* Add */}
-                        <button onClick={() => selectTrack(track)}
-                          className="px-3 py-1.5 rounded-full text-xs font-bold text-black flex-shrink-0"
-                          style={{ background: musicTitle && musicUrl.includes(track.audio) ? '#30D158' : 'white' }}>
-                          {musicTitle && musicUrl === track.audio ? '✓' : 'Add'}
-                        </button>
+                      <div className="flex items-center justify-center h-40"><Loader2 className="w-7 h-7 animate-spin text-white/40" /></div>
+                    ) : musicError ? (
+                      <div className="flex flex-col items-center justify-center h-40 gap-3">
+                        <p className="text-white/40 text-sm">{musicError}</p>
+                        <button onClick={() => loadMusic(musicQuery)} className="text-sm text-primary font-semibold">Retry</button>
                       </div>
-                    ))}
+                    ) : itunesTracks.length === 0 ? (
+                      <div className="flex items-center justify-center h-40 text-white/40 text-sm">No tracks found</div>
+                    ) : (
+                      <div className="space-y-1">
+                        {itunesTracks.map(track => {
+                          const isSelected = musicUrl === track.previewUrl;
+                          const isPreviewing = previewingId === track.trackId;
+                          return (
+                            <div key={track.trackId}
+                              className={cn('flex items-center gap-3 px-3 py-3 rounded-2xl transition-colors', isSelected ? 'bg-white/10' : 'hover:bg-white/5')}>
+                              {/* Art */}
+                              <div className="relative flex-shrink-0">
+                                <img src={track.artworkUrl100} alt={track.trackName}
+                                  className="w-12 h-12 rounded-xl object-cover bg-white/10" />
+                                {isSelected && (
+                                  <div className="absolute inset-0 rounded-xl bg-green-500/30 flex items-center justify-center">
+                                    <Check className="w-4 h-4 text-green-400" />
+                                  </div>
+                                )}
+                              </div>
+                              {/* Info */}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-white text-sm font-medium truncate">{track.trackName}</p>
+                                <p className="text-white/50 text-xs truncate">{track.artistName}</p>
+                                <p className="text-white/25 text-[10px] truncate">{track.collectionName}</p>
+                              </div>
+                              {/* Preview */}
+                              <button onClick={() => previewTrack(track)}
+                                className={cn('w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 transition-colors', isPreviewing ? 'bg-primary' : 'bg-white/10 hover:bg-white/20')}>
+                                {isPreviewing
+                                  ? <Pause className="w-4 h-4 text-white" />
+                                  : <Play className="w-4 h-4 text-white ml-0.5" />}
+                              </button>
+                              {/* Add */}
+                              <button onClick={() => selectTrack(track)}
+                                className={cn('px-3 py-1.5 rounded-full text-xs font-bold flex-shrink-0 transition-all', isSelected ? 'bg-green-500 text-white' : 'bg-white text-black hover:bg-white/90')}>
+                                {isSelected ? '✓ Added' : 'Add'}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                </motion.div>
+                </Sheet>
               )}
             </AnimatePresence>
 
-            {/* EFFECTS */}
+            {/* EFFECTS — 85vh Sheet */}
             <AnimatePresence>
               {activeTool === 'effects' && (
-                <motion.div key="effects" initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-                  transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-                  className="absolute bottom-0 inset-x-0 z-20 bg-black/95 backdrop-blur-xl rounded-t-3xl px-5 pt-5 pb-10">
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="text-white font-bold text-base">Effects</span>
-                    <button onClick={() => setActiveTool(null)} className="w-8 h-8 rounded-full bg-white flex items-center justify-center"><Check className="w-4 h-4 text-black" /></button>
+                <Sheet key="effects" title="Effects" onClose={() => setActiveTool(null)}>
+                  <div className="flex-1 overflow-y-auto px-5 pb-8">
+                    <div className="grid grid-cols-4 gap-3">
+                      {EFFECTS.map(fx => (
+                        <button key={fx.id} onClick={() => setActiveEffect(fx.id)} className="flex flex-col items-center gap-2">
+                          <div className={cn('w-full aspect-square rounded-2xl overflow-hidden border-2 transition-all', activeEffect === fx.id ? 'border-white scale-105' : 'border-white/10')}>
+                            {state.previewUrl && state.type === 'image'
+                              ? <img src={state.previewUrl} alt={fx.label} className="w-full h-full object-cover" style={{ filter: fx.style }} />
+                              : <div className="w-full h-full" style={{ background: 'linear-gradient(135deg,#555,#222)', filter: fx.style }} />}
+                          </div>
+                          <span className={cn('text-xs', activeEffect === fx.id ? 'text-white font-bold' : 'text-white/50')}>{fx.label}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <div className="grid grid-cols-4 gap-3">
-                    {EFFECTS.map(fx => (
-                      <button key={fx.id} onClick={() => setActiveEffect(fx.id)} className="flex flex-col items-center gap-2">
-                        <div className={cn('w-full aspect-square rounded-2xl overflow-hidden border-2 transition-all', activeEffect === fx.id ? 'border-white scale-105' : 'border-white/10')}>
-                          {state.previewUrl && state.type === 'image'
-                            ? <img src={state.previewUrl} alt={fx.label} className="w-full h-full object-cover" style={{ filter: fx.style }} />
-                            : <div className="w-full h-full" style={{ background: 'linear-gradient(135deg,#555,#222)', filter: fx.style }} />
-                          }
-                        </div>
-                        <span className={cn('text-xs', activeEffect === fx.id ? 'text-white font-bold' : 'text-white/50')}>{fx.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </motion.div>
+                </Sheet>
               )}
             </AnimatePresence>
 
-            {/* MENTION */}
+            {/* MENTION — 85vh Sheet */}
             <AnimatePresence>
               {activeTool === 'mention' && (
-                <motion.div key="mention" initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-                  transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-                  className="absolute bottom-0 inset-x-0 z-20 bg-black/95 backdrop-blur-xl rounded-t-3xl px-5 pt-5 pb-10">
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="text-white font-bold text-base">Mention Someone</span>
-                    <button onClick={() => setActiveTool(null)} className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center"><X className="w-4 h-4 text-white" /></button>
+                <Sheet key="mention" title="Mention Someone" onClose={() => setActiveTool(null)}>
+                  <div className="px-5 pt-2 flex-1">
+                    <div className="flex gap-3">
+                      <input autoFocus type="text" value={mentionDraft} onChange={e => setMentionDraft(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && addMention()} placeholder="@username"
+                        className="flex-1 bg-white/10 text-white placeholder:text-white/40 rounded-2xl px-4 py-3 text-sm outline-none border border-white/10 focus:border-white/30" />
+                      <button onClick={addMention} className="px-5 py-3 rounded-2xl bg-white text-black font-bold text-sm">Add</button>
+                    </div>
+                    <p className="text-white/30 text-xs mt-3">The mention will appear as a draggable text layer on your Blink.</p>
                   </div>
-                  <div className="flex gap-3">
-                    <input autoFocus type="text" value={mentionDraft} onChange={e => setMentionDraft(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && addMention()} placeholder="@username"
-                      className="flex-1 bg-white/10 text-white placeholder:text-white/40 rounded-2xl px-4 py-3 text-sm outline-none border border-white/10 focus:border-white/30" />
-                    <button onClick={addMention} className="px-5 py-3 rounded-2xl bg-white text-black font-bold text-sm">Add</button>
-                  </div>
-                </motion.div>
+                </Sheet>
               )}
             </AnimatePresence>
+
           </motion.div>
         )}
 
@@ -838,8 +857,7 @@ export default function CreateBlinkPage() {
             <div className="absolute inset-0 z-0">
               {state.type === 'image'
                 ? <img src={state.previewUrl} alt="" className="w-full h-full object-cover opacity-20" style={{ filter: `${filterStyle} blur(20px)` }} />
-                : <video src={state.previewUrl} className="w-full h-full object-cover opacity-20" muted playsInline style={{ filter: `${filterStyle} blur(20px)` }} />
-              }
+                : <video src={state.previewUrl} className="w-full h-full object-cover opacity-20" muted playsInline style={{ filter: `${filterStyle} blur(20px)` }} />}
               <div className="absolute inset-0 bg-black/75" />
             </div>
 
@@ -855,8 +873,7 @@ export default function CreateBlinkPage() {
                 <div className="w-16 h-24 rounded-xl overflow-hidden flex-shrink-0 bg-zinc-800">
                   {state.type === 'image'
                     ? <img src={state.previewUrl} alt="thumb" className="w-full h-full object-cover" style={{ filter: filterStyle }} />
-                    : <video src={state.previewUrl} className="w-full h-full object-cover" muted playsInline style={{ filter: filterStyle }} />
-                  }
+                    : <video src={state.previewUrl} className="w-full h-full object-cover" muted playsInline style={{ filter: filterStyle }} />}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-white font-semibold text-sm mb-0.5">Your Blink</p>
@@ -869,7 +886,7 @@ export default function CreateBlinkPage() {
                   )}
                   <div className="flex gap-1.5 flex-wrap">
                     {textLayers.length > 0 && <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/50">Text</span>}
-                    {stickerLayers.length > 0 && <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/50">Stickers</span>}
+                    {stickerLayers.length > 0 && <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/50">GIFs</span>}
                     {drawStrokes.length > 0 && <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/50">Drawing</span>}
                     {activeEffect !== 'none' && <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/50">{EFFECTS.find(e => e.id === activeEffect)?.label}</span>}
                   </div>
@@ -898,21 +915,20 @@ export default function CreateBlinkPage() {
               </div>
 
               <button onClick={handlePublish} disabled={state.uploading}
-                className="w-full py-4 rounded-full font-bold text-base flex items-center justify-center gap-3 mb-8 transition-all active:scale-[0.98] disabled:opacity-60 text-white"
+                className="w-full py-4 rounded-full font-bold text-base flex items-center justify-center gap-3 mb-4 transition-all active:scale-[0.98] disabled:opacity-60 text-white"
                 style={{ background: state.uploading ? 'rgba(255,255,255,0.1)' : 'linear-gradient(135deg,#667eea 0%,#764ba2 100%)' }}>
                 {state.uploading
-                  ? <><Loader2 className="w-5 h-5 animate-spin" /> Sharing… {state.progress}%</>
+                  ? <><Loader2 className="w-5 h-5 animate-spin" /> Uploading… {state.progress}%</>
                   : <><Send className="w-5 h-5" /> Share Blink</>}
               </button>
 
               {state.uploading && (
-                <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden mb-4">
+                <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mb-4">
                   <motion.div className="h-full rounded-full"
                     style={{ background: 'linear-gradient(90deg,#667eea,#764ba2)', width: `${state.progress}%` }}
                     transition={{ duration: 0.3 }} />
                 </div>
               )}
-
               {state.error && <p className="text-red-400 text-sm text-center mb-4">{state.error}</p>}
             </div>
           </motion.div>
