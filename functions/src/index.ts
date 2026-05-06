@@ -254,3 +254,131 @@ export const geminiProxy = functions.https.onCall(
 // CORS. This function returns a short-lived signed PUT URL so the browser can
 // upload the file directly without touching the Firebase Storage SDK at all.
 export { getBlinkUploadUrl } from './blinkUpload';
+// =============================================================================
+// YOUTUBE RESUMABLE UPLOAD — initYouTubeUpload
+// =============================================================================
+// Paste this block into functions/src/index.ts
+//
+// SETUP (one-time, run in your terminal):
+//   firebase functions:secrets:set YOUTUBE_CLIENT_ID
+//   firebase functions:secrets:set YOUTUBE_CLIENT_SECRET
+//   firebase functions:secrets:set YOUTUBE_REFRESH_TOKEN
+//
+// How to get a refresh token:
+//   1. Go to console.cloud.google.com → enable "YouTube Data API v3"
+//   2. Create OAuth 2.0 credentials (type: Web application)
+//      - Authorised redirect URI: https://developers.google.com/oauthplayground
+//   3. Open https://developers.google.com/oauthplayground
+//      - Click ⚙ (top right) → check "Use your own OAuth credentials"
+//      - Paste your Client ID + Secret
+//   4. In Step 1, find "YouTube Data API v3" → select:
+//        https://www.googleapis.com/auth/youtube.upload
+//   5. Click "Authorise APIs" → sign in with the YouTube account you want to
+//      upload to → allow access
+//   6. Click "Exchange authorisation code for tokens"
+//   7. Copy the "Refresh token" value — that's YOUTUBE_REFRESH_TOKEN
+//
+// Deploy:
+//   firebase deploy --only functions
+
+export const initYouTubeUpload = functions.https.onCall(
+  {
+    enforceAppCheck: false,
+    secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"],
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new functions.https.HttpsError("unauthenticated", "Must be signed in.");
+    }
+
+    const { fileName, fileSize, mimeType, title, description, privacyStatus } =
+      request.data as {
+        fileName: string;
+        fileSize: number;
+        mimeType: string;
+        title?: string;
+        description?: string;
+        privacyStatus?: "public" | "unlisted" | "private";
+      };
+
+    if (!fileName || !fileSize || !mimeType) {
+      throw new functions.https.HttpsError("invalid-argument", "fileName, fileSize, and mimeType are required.");
+    }
+
+    if (!mimeType.startsWith("video/")) {
+      throw new functions.https.HttpsError("invalid-argument", "mimeType must be a video type.");
+    }
+
+    if (fileSize > 100 * 1024 * 1024) {
+      throw new functions.https.HttpsError("invalid-argument", "Max file size is 100 MB.");
+    }
+
+    // ── Step 1: Exchange refresh token for a fresh access token ──────────────
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: process.env.YOUTUBE_CLIENT_ID!,
+        client_secret: process.env.YOUTUBE_CLIENT_SECRET!,
+        refresh_token: process.env.YOUTUBE_REFRESH_TOKEN!,
+        grant_type: "refresh_token",
+      }),
+    });
+
+    if (!tokenRes.ok) {
+      const err = await tokenRes.text();
+      console.error("Token exchange failed:", err);
+      throw new functions.https.HttpsError("internal", "Failed to authenticate with YouTube.");
+    }
+
+    const { access_token } = await tokenRes.json() as { access_token: string };
+
+    // ── Step 2: Initiate a resumable upload session ───────────────────────────
+    const videoTitle = (title || fileName.replace(/\.[^/.]+$/, "")).slice(0, 100);
+    const videoDescription = (description || "").slice(0, 5000);
+    const privacy = privacyStatus || "public";
+
+    const initRes = await fetch(
+      "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${access_token}`,
+          "Content-Type": "application/json",
+          "X-Upload-Content-Type": mimeType,
+          "X-Upload-Content-Length": String(fileSize),
+        },
+        body: JSON.stringify({
+          snippet: {
+            title: videoTitle,
+            description: videoDescription,
+            categoryId: "22", // People & Blogs — generic default
+          },
+          status: {
+            privacyStatus: privacy,
+            selfDeclaredMadeForKids: false,
+          },
+        }),
+      }
+    );
+
+    if (!initRes.ok) {
+      const err = await initRes.text();
+      console.error("YouTube session init failed:", err);
+      throw new functions.https.HttpsError("internal", "Failed to start YouTube upload session.");
+    }
+
+    // The resumable upload URL is in the Location header
+    const uploadUrl = initRes.headers.get("location");
+    if (!uploadUrl) {
+      throw new functions.https.HttpsError("internal", "YouTube did not return an upload URL.");
+    }
+
+    // ── Step 3: Extract the video ID from the upload URL ─────────────────────
+    // YouTube embeds the video ID as `?videoId=<id>` in the resumable URL
+    const videoIdMatch = uploadUrl.match(/[?&]videoId=([^&]+)/);
+    const videoId = videoIdMatch?.[1] ?? null;
+
+    return { uploadUrl, videoId };
+  }
+);
