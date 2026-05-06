@@ -27,18 +27,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // ── CORS headers (allow your Vercel app origin) ────────────────────────────
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-secret');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  // ── Simple shared-secret auth (no Firebase SDK needed) ────────────────────
-  // The frontend sends the secret in a header. It's not a user token, just a
-  // lightweight guard so random people can't hit your endpoint.
-  const apiSecret = process.env.NETOLYNK_API_SECRET;
-  if (apiSecret && req.headers['x-api-secret'] !== apiSecret) {
-    return res.status(401).json({ error: 'Unauthorised' });
-  }
 
   // ── Validate input ─────────────────────────────────────────────────────────
   const { fileName, fileSize, mimeType, title, description, privacyStatus } = req.body ?? {};
