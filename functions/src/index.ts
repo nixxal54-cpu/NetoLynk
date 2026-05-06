@@ -246,3 +246,11 @@ export const geminiProxy = functions.https.onCall(
     return { text };
   }
 );
+
+// =============================================================================
+// BLINK SIGNED UPLOAD — Bypasses CORS for neto-lynk.vercel.app
+// =============================================================================
+// The browser cannot upload directly to Firebase Storage from Vercel due to
+// CORS. This function returns a short-lived signed PUT URL so the browser can
+// upload the file directly without touching the Firebase Storage SDK at all.
+export { getBlinkUploadUrl } from './blinkUpload';
