@@ -182,4 +182,7 @@ export function useBlinkUpload() {
       caption: '', previewUrl: null, musicUrl: null, musicTitle: null,
     };
     setState(INITIAL_STATE);
-  },
+  }, []);
+
+  return { state, selectFile, setTextOverlay, setTextOverlayColor, setCaption, setMusic, publish, reset };
+}
