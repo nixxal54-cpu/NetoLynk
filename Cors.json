@@ -1,0 +1,15 @@
+[
+  {
+    "origin": ["*"],
+    "method": ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"],
+    "responseHeader": [
+      "Content-Type",
+      "Authorization",
+      "Content-Length",
+      "X-Requested-With",
+      "Access-Control-Allow-Origin",
+      "Firebase-Instance-ID-Token"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]
