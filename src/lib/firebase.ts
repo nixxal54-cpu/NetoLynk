@@ -8,7 +8,10 @@ import firebaseConfig from '../../firebase-applet-config.json';
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-export const storage = getStorage(app);
+
+// FIX: Pass explicit gs:// bucket URL — required for .firebasestorage.app domains.
+// Without this, the SDK may silently target the wrong bucket and all uploads hang forever.
+export const storage = getStorage(app, `gs://${firebaseConfig.storageBucket}`);
 export const functions = getFunctions(app);
 
 // Validate Connection to Firestore
