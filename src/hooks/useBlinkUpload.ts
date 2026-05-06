@@ -1,10 +1,6 @@
 /**
  * useBlinkUpload.ts
  * Uses Cloudinary for storage — free, no Firebase Storage, no CORS issues.
- *
- * Cloud name and upload preset are NOT secrets — they are public values
- * safe to ship in frontend code (Cloudinary's security model relies on
- * upload preset restrictions, not on keeping these values secret).
  */
 import { useState, useCallback, useRef } from 'react';
 import { collection, addDoc } from 'firebase/firestore';
@@ -15,10 +11,10 @@ import { BlinkUploadState } from '../types/blink';
 const MAX_IMAGE_MB = 10;
 const MAX_VIDEO_MB = 50;
 
-// These are PUBLIC values — safe to hardcode in frontend.
-// Cloud name and unsigned preset cannot be used to read or delete files.
-const CLOUD_NAME = (import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string) || 'dmwnywqes';
-const UPLOAD_PRESET = (import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string) || 'blinks';
+// HARDCODED FIX: These are your exact Cloudinary details. 
+// This bypasses any Vercel/Environment variable issues completely.
+const CLOUD_NAME = 'dmwnywqes';
+const UPLOAD_PRESET = 'blinks';
 
 const INITIAL_STATE: BlinkUploadState = {
   file: null, previewUrl: null, type: null,
@@ -59,27 +55,27 @@ export function useBlinkUpload() {
     const type = isVideo ? 'video' : 'image';
     dataRef.current = { ...dataRef.current, file, type, previewUrl };
     setState(s => ({ ...s, file, previewUrl, type, error: null }));
-  }, []);
+  },[]);
 
   const setTextOverlay = useCallback((text: string) => {
     dataRef.current.textOverlay = text;
     setState(s => ({ ...s, textOverlay: text }));
-  }, []);
+  },[]);
 
   const setTextOverlayColor = useCallback((color: string) => {
     dataRef.current.textOverlayColor = color;
     setState(s => ({ ...s, textOverlayColor: color }));
-  }, []);
+  },[]);
 
   const setCaption = useCallback((caption: string) => {
     dataRef.current.caption = caption;
     setState(s => ({ ...s, caption }));
-  }, []);
+  },[]);
 
   const setMusic = useCallback((musicUrl: string | null, musicTitle: string | null) => {
     dataRef.current.musicUrl = musicUrl;
     dataRef.current.musicTitle = musicTitle;
-  }, []);
+  },[]);
 
   const publish = useCallback(async (): Promise<boolean> => {
     const { file, type, textOverlay, textOverlayColor, caption, musicUrl, musicTitle } = dataRef.current;
@@ -92,14 +88,14 @@ export function useBlinkUpload() {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('upload_preset', UPLOAD_PRESET);
-      formData.append('folder', 'blinks');
-      formData.append('tags', `blink,${user.uid}`);
+      
+      // CRITICAL FIX: Removed `folder` and `tags` here. 
+      // Cloudinary's "Unsigned" presets block uploads and throw Network Errors if you send these!
 
       const resourceType = type === 'video' ? 'video' : 'image';
       const uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/${resourceType}/upload`;
 
       console.log('[Blink] Uploading to:', uploadUrl);
-      console.log('[Blink] Cloud:', CLOUD_NAME, 'Preset:', UPLOAD_PRESET);
 
       const mediaUrl = await new Promise<string>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
@@ -160,7 +156,7 @@ export function useBlinkUpload() {
         musicUrl: musicUrl ?? null,
         musicTitle: musicTitle ?? null,
         viewsCount: 0,
-        viewedBy: [],
+        viewedBy:[],
         createdAt: now.toISOString(),
         expiresAt,
       });
@@ -186,7 +182,4 @@ export function useBlinkUpload() {
       caption: '', previewUrl: null, musicUrl: null, musicTitle: null,
     };
     setState(INITIAL_STATE);
-  }, []);
-
-  return { state, selectFile, setTextOverlay, setTextOverlayColor, setCaption, setMusic, publish, reset };
-}
+  },
