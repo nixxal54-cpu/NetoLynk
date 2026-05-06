@@ -132,9 +132,6 @@ export default function CreateLynkPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(import.meta.env.VITE_API_SECRET
-            ? { 'x-api-secret': import.meta.env.VITE_API_SECRET }
-            : {}),
         },
         body: JSON.stringify({
           fileName:      file.name,
