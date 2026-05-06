@@ -155,14 +155,25 @@ export function useBlinkUpload() {
   }, [user]);
 
   const reset = useCallback(() => {
-    if (dataRef.current.previewUrl) URL.revokeObjectURL(dataRef.current.previewUrl);
-    dataRef.current = {
-      file: null, type: null, textOverlay: '', textOverlayColor: '#ffffff',
-      caption: '', previewUrl: null, musicUrl: null, musicTitle: null,
-    };
-    setState(INITIAL_STATE);
-  },
-   return {
+  if (dataRef.current.previewUrl) {
+    URL.revokeObjectURL(dataRef.current.previewUrl);
+  }
+
+  dataRef.current = {
+    file: null,
+    type: null,
+    textOverlay: '',
+    textOverlayColor: '#ffffff',
+    caption: '',
+    previewUrl: null,
+    musicUrl: null,
+    musicTitle: null,
+  };
+
+  setState(INITIAL_STATE);
+}, []); // ✅ CLOSE useCallback properly
+
+return {
   state,
   selectFile,
   setTextOverlay,
@@ -172,4 +183,3 @@ export function useBlinkUpload() {
   publish,
   reset,
 };
-}
