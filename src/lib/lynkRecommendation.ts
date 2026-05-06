@@ -1,44 +1,29 @@
 // src/lib/lynkRecommendation.ts
 
-class InteractionTracker {
-  private prefs: Record<string, number> = {};
-
-  constructor() {
-    const saved = localStorage.getItem('netolynk_lynk_prefs');
-    if (saved) this.prefs = JSON.parse(saved);
-  }
-
-  trackCategory(category: string, weight: number) {
-    this.prefs[category] = (this.prefs[category] || 0) + weight;
-    localStorage.setItem('netolynk_lynk_prefs', JSON.stringify(this.prefs));
-  }
-
-  getPreferred(): string[] {
-    return Object.entries(this.prefs)
-      .sort((a, b) => b[1] - a[1])
-      .map(([cat]) => cat).slice(0, 3);
-  }
-}
-
-export const interactionTracker = new InteractionTracker();
-
 export function calculateLynkScore(lynk: any): number {
   const m = lynk.metrics;
   
-  // A skip is defined as watchTime < 2 seconds
-  const watchTimeRatio = m.duration > 0 ? (m.totalWatchTime / m.duration) : 0;
+  // 1. Cap inputs to prevent algorithmic gaming
+  const safeReplays = Math.min(m.replays, 3); // Max 3 replays count per view
   
-  // Recency Decay (Max 24h)
-  const hoursOld = (Date.now() - new Date(lynk.createdAt).getTime()) / 3600000;
-  const recencyMultiplier = hoursOld < 24 ? (24 - hoursOld) / 24 : 0.1;
+  // Guard against division by zero & cap at 200% completion rate (to prevent bot farming)
+  const rawWatchRatio = m.duration > 0 ? (m.totalWatchTime / m.duration) : 0;
+  const safeWatchRatio = Math.min(rawWatchRatio, 2.0); 
 
-  // The Addictive Formula
+  // 2. Exponential Recency Decay
+  const hoursOld = Math.max((Date.now() - new Date(lynk.createdAt).getTime()) / 3600000, 0);
+  const recencyMultiplier = Math.max(Math.pow(0.95, hoursOld), 0.1); // Slowly decays, bottoms out at 10%
+  
+  // 3. Decaying Boost Score (Loses 10% of its power every hour)
+  const decayedBoost = (lynk.boostScore || 0) * Math.pow(0.9, hoursOld);
+
+  // 4. Final Score
   const baseScore = 
     (m.likes * 3) + 
     (m.comments * 5) + 
-    (watchTimeRatio * 8) + 
-    (m.replays * 4) - 
-    (m.skips * 6);
+    (safeWatchRatio * 8) + 
+    (safeReplays * 4) - 
+    (m.skips * 6); // Skips actively bury bad content
 
-  return (baseScore * recencyMultiplier) + (lynk.boostScore || 0);
+  return Math.max((baseScore * recencyMultiplier) + decayedBoost, 0); // No negative scores
 }
