@@ -38,53 +38,36 @@ function shuffle(array: any[]) {
   return arr;
 }
 
-// 🚀 YOUR STRATEGIC FEED (FIXED VERSION)
+// 🚀 STRATEGIC FEED
+// Shows all visible public videos — new uploads always appear.
+// Scoring weights engagement but never hides zero-engagement videos.
 function buildStrategicFeed(allLynks: any[], seenIds: Set<string>) {
-  const unseen = allLynks.filter(l => !seenIds.has(l.id));
-
-  const scored = unseen.map(l => ({ ...l, score: calculateLynkScore(l) }));
-  scored.sort((a, b) => b.score - a.score);
-
-  const preferredCats = interactionTracker.getPreferred();
-
-  const highQuality = scored.filter(
-    l => preferredCats.includes(l.category) && l.score > 20
+  // Filter: unseen + not hidden + public
+  const unseen = allLynks.filter(l =>
+    !seenIds.has(l.id) &&
+    l.isHidden !== true &&
+    (l.visibility === 'public' || l.visibility === undefined)
   );
 
-  const newCreators = scored.filter(l => l.boostScore > 50);
+  if (unseen.length === 0) return [];
 
-  const discovery = shuffle(scored);
+  // Score every video — new videos with 0 engagement still get boostScore
+  const scored = unseen.map(l => ({ ...l, score: calculateLynkScore(l) }));
 
+  // Split into boosted (new uploads) and the rest
+  const boosted  = scored.filter(l => (l.boostScore || 0) > 0).sort((a, b) => b.boostScore - a.boostScore);
+  const rest     = scored.filter(l => (l.boostScore || 0) === 0).sort((a, b) => b.score - a.score);
+  const shuffled = shuffle([...boosted, ...rest]);
+
+  // Deduplicate and return all (no arbitrary 10-item cap on small feeds)
   const usedIds = new Set<string>();
   const feed: any[] = [];
 
-  const pushUnique = (item: any | undefined) => {
-    if (!item || usedIds.has(item.id)) return;
-    usedIds.add(item.id);
-    feed.push(item);
-  };
-
-  // 🔥 HOOK (first 4)
-  pushUnique(highQuality.shift()); // 0
-  pushUnique(highQuality.shift()); // 1
-  pushUnique(discovery.shift());   // 2
-  pushUnique(newCreators.shift()); // 3
-
-  // 🎯 Fill remaining (target = 10)
-  while (feed.length < 10) {
-    if (highQuality.length) pushUnique(highQuality.shift());
-    if (feed.length >= 10) break;
-
-    if (newCreators.length) pushUnique(newCreators.shift());
-    if (feed.length >= 10) break;
-
-    if (discovery.length) pushUnique(discovery.shift());
-    if (feed.length >= 10) break;
-
-    // fallback (in case all pools empty)
-    const fallback = scored.find(l => !usedIds.has(l.id));
-    if (!fallback) break;
-    pushUnique(fallback);
+  for (const item of shuffled) {
+    if (!usedIds.has(item.id)) {
+      usedIds.add(item.id);
+      feed.push(item);
+    }
   }
 
   return feed;
@@ -139,8 +122,12 @@ export default function LynksPage() {
         d => ({ id: d.id, ...d.data() }) as Lynk
       );
 
+      // Debug: log what Firestore returned
+      console.log('[LynksPage] Fetched from Firestore:', allLynks.length, 'docs', allLynks.map(l => ({ id: l.id, visibility: l.visibility, isHidden: l.isHidden, videoId: l.videoId })));
+
       // 🔥 Use your strategic feed
       const newBatch = buildStrategicFeed(allLynks, seenIds.current);
+      console.log('[LynksPage] After feed filter:', newBatch.length, 'videos');
 
       newBatch.forEach(l => seenIds.current.add(l.id));
 
