@@ -69,9 +69,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
 
     if (!tokenRes.ok) {
-      const err = await tokenRes.text();
-      console.error('[initYouTubeUpload] Token exchange failed:', err);
-      return res.status(500).json({ error: 'Failed to authenticate with YouTube.' });
+      const errText = await tokenRes.text();
+      console.error('[initYouTubeUpload] Token exchange failed:', errText);
+      // Return the raw Google error so we can diagnose
+      return res.status(500).json({ error: `YouTube auth failed: ${errText}` });
     }
 
     const { access_token } = await tokenRes.json() as { access_token: string };
