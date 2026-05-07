@@ -1,6 +1,5 @@
 // src/pages/CreateLynkPage.tsx
 import React, { useState, useRef, useCallback } from 'react';
-import axios from 'axios';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
@@ -128,34 +127,42 @@ export default function CreateLynkPage() {
     setUploadProgress(0);
 
     try {
-      // Call Vercel serverless function — secrets never leave the server
-      const apiRes = await fetch('/api/initYouTubeUpload', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          fileName:      file.name,
-          fileSize:      file.size,
-          mimeType:      file.type,
-          title:         caption.trim() || file.name.replace(/\.[^/.]+$/, ''),
-          description:   hashtags.map(t => `#${t}`).join(' '),
-          privacyStatus: visibility === 'public' ? 'public' : 'unlisted',
-        }),
-      });
+      // Send file directly to our Vercel function which uploads to YouTube server-side.
+      // This avoids CORS issues and ensures we always get a valid videoId back.
+      const xhr = new XMLHttpRequest();
+      const videoTitle = caption.trim() || file.name.replace(/\.[^/.]+$/, '');
+      const videoDesc  = hashtags.map(t => `#${t}`).join(' ');
 
-      if (!apiRes.ok) {
-        const { error } = await apiRes.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(error || `Server error ${apiRes.status}`);
-      }
+      const { videoId, thumbnail } = await new Promise<{ videoId: string; thumbnail: string }>((resolve, reject) => {
+        xhr.open('POST', '/api/uploadYouTube');
+        xhr.setRequestHeader('Content-Type', file.type);
+        xhr.setRequestHeader('x-video-title', videoTitle.slice(0, 100));
+        xhr.setRequestHeader('x-video-description', videoDesc.slice(0, 5000));
+        xhr.setRequestHeader('x-privacy-status', visibility === 'public' ? 'public' : 'unlisted');
 
-      const { uploadUrl, videoId } = await apiRes.json() as { uploadUrl: string; videoId: string };
+        xhr.upload.onprogress = (evt) => {
+          if (evt.lengthComputable) {
+            setUploadProgress(Math.round((evt.loaded * 100) / evt.total));
+          }
+        };
 
-      await axios.put(uploadUrl, file, {
-        headers: { 'Content-Type': file.type },
-        onUploadProgress: (evt) => {
-          setUploadProgress(Math.round((evt.loaded * 100) / (evt.total || file.size)));
-        },
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              const data = JSON.parse(xhr.responseText);
+              if (data.videoId) resolve(data);
+              else reject(new Error(data.error || 'No videoId returned'));
+            } catch { reject(new Error('Invalid response from server')); }
+          } else {
+            try {
+              const data = JSON.parse(xhr.responseText);
+              reject(new Error(data.error || `Upload failed (${xhr.status})`));
+            } catch { reject(new Error(`Upload failed (${xhr.status})`)); }
+          }
+        };
+
+        xhr.onerror = () => reject(new Error('Network error during upload'));
+        xhr.send(file);
       });
 
       setUploadProgress(100);
@@ -165,7 +172,7 @@ export default function CreateLynkPage() {
         username: user.username,
         userProfileImage: user.profileImage ?? null,
         videoId,
-        thumbnail: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+        thumbnail: thumbnail || `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
         caption: caption.trim(),
         hashtags,
         category,
