@@ -2,68 +2,105 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { metricsQueue } from '../../lib/metricsQueue';
 
-export const LynkPlayer: React.FC<{ lynk: any, isActive: boolean }> = ({ lynk, isActive }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const playerRef = useRef<any>(null); // YT.Player instance
-  const[isPlaying, setIsPlaying] = useState(false);
-  const actualWatchSeconds = useRef(0);
-  const trackingInterval = useRef<NodeJS.Timeout | null>(null);
+// Ensure YT API is loaded and call back when ready
+function onYTReady(cb: () => void) {
+  if (window.YT && window.YT.Player) {
+    cb();
+    return;
+  }
+  const prev = (window as any).onYouTubeIframeAPIReady;
+  (window as any).onYouTubeIframeAPIReady = () => {
+    prev?.();
+    cb();
+  };
+}
 
+export const LynkPlayer: React.FC<{ lynk: any; isActive: boolean }> = ({ lynk, isActive }) => {
+  const containerRef        = useRef<HTMLDivElement>(null);
+  const playerRef           = useRef<any>(null);
+  const [ready, setReady]   = useState(false);
+  const isPlayingRef        = useRef(false);
+  const actualWatchSeconds  = useRef(0);
+  const trackingInterval    = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Init player once YT API is available
   useEffect(() => {
-    // Initialize YouTube Player properly to bind events
-    if (!window.YT) return; // Assume YT script is loaded in index.html
+    let destroyed = false;
 
-    playerRef.current = new window.YT.Player(containerRef.current, {
-      videoId: lynk.videoId,
-      playerVars: {
-        autoplay: 0, controls: 0, disablekb: 1, fs: 0,
-        modestbranding: 1, playsinline: 1, rel: 0, loop: 1, playlist: lynk.videoId
-      },
-      events: {
-        onStateChange: (event: any) => {
-          if (event.data === window.YT.PlayerState.PLAYING) {
-            setIsPlaying(true);
-          } else {
-            setIsPlaying(false);
-          }
-        }
-      }
+    onYTReady(() => {
+      if (destroyed || !containerRef.current) return;
+
+      playerRef.current = new window.YT.Player(containerRef.current, {
+        videoId: lynk.videoId,
+        playerVars: {
+          autoplay:       0,
+          controls:       0,
+          disablekb:      1,
+          fs:             0,
+          modestbranding: 1,
+          playsinline:    1,
+          rel:            0,
+          loop:           1,
+          playlist:       lynk.videoId,
+        },
+        events: {
+          onReady: () => {
+            if (!destroyed) setReady(true);
+          },
+          onStateChange: (event: any) => {
+            isPlayingRef.current = event.data === window.YT.PlayerState.PLAYING;
+          },
+        },
+      });
     });
 
-    return () => playerRef.current?.destroy();
+    return () => {
+      destroyed = true;
+      playerRef.current?.destroy();
+      playerRef.current = null;
+    };
   }, [lynk.videoId]);
 
-  // Track active time ONLY when video is actually playing
+  // Play / pause when active state changes
   useEffect(() => {
-    if (isPlaying && isActive) {
-      trackingInterval.current = setInterval(() => {
-        actualWatchSeconds.current += 1;
-      }, 1000);
+    if (!ready) return;
+    if (isActive) {
+      playerRef.current?.playVideo();
     } else {
-      if (trackingInterval.current) clearInterval(trackingInterval.current);
+      playerRef.current?.pauseVideo();
+      if (actualWatchSeconds.current > 0) {
+        const isSkip  = actualWatchSeconds.current <= 2;
+        const replays = Math.floor(actualWatchSeconds.current / (lynk.duration || 15));
+        metricsQueue.track(lynk.id, actualWatchSeconds.current, isSkip, replays);
+        actualWatchSeconds.current = 0;
+      }
     }
+  }, [isActive, ready]);
 
+  // Watch time tracking
+  useEffect(() => {
+    if (!ready) return;
+    trackingInterval.current = setInterval(() => {
+      if (isActive && isPlayingRef.current) {
+        actualWatchSeconds.current += 1;
+      }
+    }, 1000);
     return () => {
       if (trackingInterval.current) clearInterval(trackingInterval.current);
     };
-  }, [isPlaying, isActive]);
+  }, [ready, isActive]);
 
-  // Handle Scroll Away (Report to Batch Queue)
-  useEffect(() => {
-    if (!isActive && playerRef.current?.pauseVideo) {
-      playerRef.current.pauseVideo();
-      
-      if (actualWatchSeconds.current > 0) {
-        const isSkip = actualWatchSeconds.current <= 2;
-        const replays = Math.floor(actualWatchSeconds.current / (lynk.duration || 15));
-        
-        metricsQueue.track(lynk.id, actualWatchSeconds.current, isSkip, replays);
-        actualWatchSeconds.current = 0; // Reset for next loop
-      }
-    } else if (isActive && playerRef.current?.playVideo) {
-      playerRef.current.playVideo();
-    }
-  }, [isActive]);
-
-  return <div ref={containerRef} className="w-full h-[140%] -translate-y-[15%] pointer-events-none" />;
+  return (
+    <div className="relative w-full h-full bg-black flex items-center justify-center">
+      <div
+        ref={containerRef}
+        className="w-full h-[140%] -translate-y-[15%] pointer-events-none"
+      />
+      {!ready && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="w-10 h-10 border-2 border-white border-t-transparent rounded-full animate-spin" />
+        </div>
+      )}
+    </div>
+  );
 };
