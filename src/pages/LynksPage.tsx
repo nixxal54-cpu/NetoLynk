@@ -174,7 +174,10 @@ export default function LynksPage() {
   return (
     <div className="h-[100dvh] w-full bg-black overflow-y-scroll snap-y snap-mandatory scrollbar-hide">
       {feed.map((lynk, index) => {
-        const isNearby = Math.abs(index - activeIndex) <= 1;
+        // Only mount ±1 from active to save memory
+        // But only the exact active index gets isActive=true → plays audio
+        const isNearby  = Math.abs(index - activeIndex) <= 1;
+        const isActive  = index === activeIndex;
 
         return (
           <div
@@ -183,11 +186,10 @@ export default function LynksPage() {
             data-index={index}
             className="w-full h-full snap-start"
           >
-            {isNearby ? (
-              <LynkPlayer lynk={lynk} isActive={activeIndex === index} />
-            ) : (
-              <div className="w-full h-full bg-black" />
-            )}
+            {isNearby
+              ? <LynkPlayer lynk={lynk} isActive={isActive} />
+              : <div className="w-full h-full bg-black" />
+            }
           </div>
         );
       })}
