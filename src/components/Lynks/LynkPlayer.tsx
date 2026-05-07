@@ -38,6 +38,7 @@ export const LynkPlayer: React.FC<{ lynk: any; isActive: boolean }> = ({ lynk, i
   const [comments, setComments] = useState(false);
   const [showHeart, setShowHeart] = useState(false);
   const lastTap = useRef(0);
+  const likeInFlight = useRef(false);
 
   // Load like/save state
   useEffect(() => {
@@ -120,11 +121,20 @@ export const LynkPlayer: React.FC<{ lynk: any; isActive: boolean }> = ({ lynk, i
   }, []);
 
   const handleLike = async () => {
-    if (!user) return;
+    if (!user || likeInFlight.current) return;
+    likeInFlight.current = true;
     const wasLiked = liked;
     setLiked(!wasLiked);
     setLikes(l => wasLiked ? l - 1 : l + 1);
-    await toggleLynkLike(lynk.id, user.uid, wasLiked);
+    try {
+      await toggleLynkLike(lynk.id, user.uid, wasLiked);
+    } catch {
+      // Revert on failure
+      setLiked(wasLiked);
+      setLikes(l => wasLiked ? l + 1 : l - 1);
+    } finally {
+      likeInFlight.current = false;
+    }
   };
 
   const handleSave = async () => {
@@ -153,8 +163,13 @@ export const LynkPlayer: React.FC<{ lynk: any; isActive: boolean }> = ({ lynk, i
       <div
         ref={containerRef}
         className="absolute inset-0 w-full h-full pointer-events-none"
-        style={{ transform: 'scale(1.01)' }} // tiny scale hides letter-boxing
+        style={{ transform: 'scale(1.35)' }}
       />
+      {/* Hide YouTube logo (bottom-left) and info button (top-right) */}
+      <div className="absolute bottom-0 left-0 w-32 h-10 z-10 pointer-events-none" style={{background:'transparent'}} />
+      <div className="absolute top-0 right-0 w-16 h-10 z-10 pointer-events-none bg-black/1" />
+      <div className="absolute bottom-0 right-0 w-32 h-12 z-10 pointer-events-none bg-black" />
+      <div className="absolute top-0 left-0 w-32 h-10 z-10 pointer-events-none bg-black/1" />
 
       {/* ── Loading spinner ── */}
       {!ready && (
