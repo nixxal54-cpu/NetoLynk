@@ -9,14 +9,23 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-// Tell Vercel to allow up to 100MB body and don't auto-parse it
+// Disable Vercel's body parser — we read the raw binary stream ourselves
 export const config = {
   api: {
-    bodyParser: {
-      sizeLimit: '100mb',
-    },
+    bodyParser: false,
+    responseLimit: '100mb',
   },
 };
+
+// Helper: collect raw request stream into a Buffer
+function getRawBody(req: VercelRequest): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -60,10 +69,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const privacyStatus = (req.headers['x-privacy-status'] as string) || 'public';
     const mimeType      = req.headers['content-type'] || 'video/mp4';
 
-    // req.body is a Buffer when bodyParser is on (Vercel parses raw body)
-    const fileBuffer: Buffer = Buffer.isBuffer(req.body)
-      ? req.body
-      : Buffer.from(req.body);
+    // Read raw binary stream from request
+    const fileBuffer: Buffer = await getRawBody(req);
 
     const fileSize = fileBuffer.length;
 
