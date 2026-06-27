@@ -17,10 +17,12 @@ const CATEGORIES: { value: LynkCategory; label: string; emoji: string }[] = [
   { value: 'trending',  label: 'Trending',  emoji: '🔥' },
 ];
 
-const MAX_CAPTION = 150;
-const MAX_FILE_MB = 100;
+const MAX_CAPTION  = 150;
+const MAX_FILE_MB  = 100;
 const MIN_DURATION = 5;
 const MAX_DURATION = 60;
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function generateThumbnail(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -62,8 +64,107 @@ function extractHashtags(text: string): string[] {
   return [...text.matchAll(/#(\w+)/g)].map(m => m[1].toLowerCase());
 }
 
+/**
+ * Upload a video file to Cloudinary using an unsigned upload preset.
+ * Returns the secure_url and public_id from Cloudinary.
+ *
+ * We use the same cloud name + preset that Blinks already uses
+ * (VITE_CLOUDINARY_CLOUD_NAME / VITE_CLOUDINARY_UPLOAD_PRESET).
+ * If you want a separate preset for Lynks you can add
+ * VITE_CLOUDINARY_LYNKS_UPLOAD_PRESET to .env.local.
+ */
+async function uploadToCloudinary(
+  file: File,
+  onProgress: (pct: number) => void
+): Promise<{ videoUrl: string; publicId: string }> {
+  const cloudName   = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string;
+  // Use a dedicated lynks preset if set, otherwise fall back to the blinks one.
+  const uploadPreset =
+    (import.meta.env.VITE_CLOUDINARY_LYNKS_UPLOAD_PRESET as string) ||
+    (import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string);
+
+  if (!cloudName || !uploadPreset) {
+    throw new Error('Cloudinary env vars not set. Check VITE_CLOUDINARY_CLOUD_NAME and VITE_CLOUDINARY_UPLOAD_PRESET in .env.local');
+  }
+
+  const url = `https://api.cloudinary.com/v1_1/${cloudName}/video/upload`;
+  const fd  = new FormData();
+  fd.append('file',         file);
+  fd.append('upload_preset', uploadPreset);
+  fd.append('folder',       'lynks');   // keeps things organised in your dashboard
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+
+    xhr.upload.onprogress = (evt) => {
+      if (evt.lengthComputable) onProgress(Math.round((evt.loaded / evt.total) * 100));
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const data = JSON.parse(xhr.responseText);
+          resolve({ videoUrl: data.secure_url as string, publicId: data.public_id as string });
+        } catch {
+          reject(new Error('Invalid response from Cloudinary'));
+        }
+      } else {
+        try {
+          const data = JSON.parse(xhr.responseText);
+          reject(new Error(data.error?.message || `Cloudinary upload failed (${xhr.status})`));
+        } catch {
+          reject(new Error(`Cloudinary upload failed (${xhr.status})`));
+        }
+      }
+    };
+
+    xhr.onerror = () => reject(new Error('Network error during upload'));
+    xhr.send(fd);
+  });
+}
+
+/**
+ * Convert the canvas-generated data-URL thumbnail to a Blob and upload it
+ * to Cloudinary as an image so we have a persistent hosted URL.
+ */
+async function uploadThumbnailToCloudinary(
+  dataUrl: string,
+  publicIdBase: string
+): Promise<string> {
+  const cloudName    = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string;
+  const uploadPreset =
+    (import.meta.env.VITE_CLOUDINARY_LYNKS_UPLOAD_PRESET as string) ||
+    (import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string);
+
+  // Convert data URL → Blob
+  const res  = await fetch(dataUrl);
+  const blob = await res.blob();
+
+  const fd = new FormData();
+  fd.append('file',          blob, `${publicIdBase}_thumb.jpg`);
+  fd.append('upload_preset', uploadPreset);
+  fd.append('folder',        'lynks/thumbnails');
+  fd.append('public_id',     `${publicIdBase}_thumb`);
+
+  const response = await fetch(
+    `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+    { method: 'POST', body: fd }
+  );
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error((err as any)?.error?.message || 'Thumbnail upload failed');
+  }
+
+  const data = await response.json();
+  return data.secure_url as string;
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
 function ProgressRing({ progress, size = 80 }: { progress: number; size?: number }) {
-  const r = (size - 8) / 2;
+  const r    = (size - 8) / 2;
   const circ = 2 * Math.PI * r;
   const offset = circ - (progress / 100) * circ;
   return (
@@ -76,23 +177,26 @@ function ProgressRing({ progress, size = 80 }: { progress: number; size?: number
   );
 }
 
+// ─── Main page ────────────────────────────────────────────────────────────────
+
 export default function CreateLynkPage() {
   const { user } = useAuth();
 
-  const [file, setFile] = useState<File | null>(null);
+  const [file,             setFile]             = useState<File | null>(null);
   const [thumbnailDataUrl, setThumbnailDataUrl] = useState<string | null>(null);
-  const [duration, setDuration] = useState(0);
-  const [dragOver, setDragOver] = useState(false);
-  const [fileError, setFileError] = useState<string | null>(null);
+  const [duration,         setDuration]         = useState(0);
+  const [dragOver,         setDragOver]         = useState(false);
+  const [fileError,        setFileError]        = useState<string | null>(null);
 
-  const [caption, setCaption] = useState('');
-  const [category, setCategory] = useState<LynkCategory>('gaming');
-  const [visibility, setVisibility] = useState<Visibility>('public');
+  const [caption,       setCaption]       = useState('');
+  const [category,      setCategory]      = useState<LynkCategory>('gaming');
+  const [visibility,    setVisibility]    = useState<Visibility>('public');
   const [allowComments, setAllowComments] = useState(true);
 
-  const [step, setStep] = useState<Step>('pick');
+  const [step,           setStep]           = useState<Step>('pick');
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [publishError, setPublishError] = useState<string | null>(null);
+  const [uploadPhase,    setUploadPhase]    = useState<'video' | 'thumbnail' | 'saving'>('video');
+  const [publishError,   setPublishError]   = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hashtags = extractHashtags(caption);
@@ -125,67 +229,51 @@ export default function CreateLynkPage() {
     setPublishError(null);
     setStep('uploading');
     setUploadProgress(0);
+    setUploadPhase('video');
 
     try {
-      // Send file directly to our Vercel function which uploads to YouTube server-side.
-      // This avoids CORS issues and ensures we always get a valid videoId back.
-      const xhr = new XMLHttpRequest();
-      const videoTitle = caption.trim() || file.name.replace(/\.[^/.]+$/, '');
-      const videoDesc  = hashtags.map(t => `#${t}`).join(' ');
-
-      const { videoId, thumbnail } = await new Promise<{ videoId: string; thumbnail: string }>((resolve, reject) => {
-        xhr.open('POST', '/api/uploadYouTube');
-        xhr.setRequestHeader('Content-Type', file.type);
-        xhr.setRequestHeader('x-video-title', videoTitle.slice(0, 100));
-        xhr.setRequestHeader('x-video-description', videoDesc.slice(0, 5000));
-        xhr.setRequestHeader('x-privacy-status', visibility === 'public' ? 'public' : 'unlisted');
-
-        xhr.upload.onprogress = (evt) => {
-          if (evt.lengthComputable) {
-            setUploadProgress(Math.round((evt.loaded * 100) / evt.total));
-          }
-        };
-
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              const data = JSON.parse(xhr.responseText);
-              if (data.videoId) resolve(data);
-              else reject(new Error(data.error || 'No videoId returned'));
-            } catch { reject(new Error('Invalid response from server')); }
-          } else {
-            try {
-              const data = JSON.parse(xhr.responseText);
-              reject(new Error(data.error || `Upload failed (${xhr.status})`));
-            } catch { reject(new Error(`Upload failed (${xhr.status})`)); }
-          }
-        };
-
-        xhr.onerror = () => reject(new Error('Network error during upload'));
-        xhr.send(file);
+      // 1. Upload video to Cloudinary
+      const { videoUrl, publicId } = await uploadToCloudinary(file, (pct) => {
+        setUploadProgress(pct);
       });
 
+      // 2. Upload thumbnail to Cloudinary
+      setUploadPhase('thumbnail');
+      setUploadProgress(0);
+      const thumbnailUrl = thumbnailDataUrl
+        ? await uploadThumbnailToCloudinary(thumbnailDataUrl, publicId.split('/').pop() || publicId)
+        : '';
+
+      // 3. Save to Firestore
+      setUploadPhase('saving');
       setUploadProgress(100);
 
       await addDoc(collection(db, 'lynks'), {
-        userId: user.uid,
-        username: user.username,
+        userId:           user.uid,
+        username:         user.username,
         userProfileImage: user.profileImage ?? null,
-        videoId,
-        thumbnail: thumbnail || `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
-        caption: caption.trim(),
+        videoUrl,
+        thumbnailUrl,
+        publicId,
+        caption:          caption.trim(),
         hashtags,
         category,
         visibility,
         allowComments,
         duration,
-        likesCount: 0, commentsCount: 0, sharesCount: 0,
-        viewsCount: 0, savesCount: 0, totalWatchSeconds: 0,
-        completionRate: 0, reportCount: 0,
-        isHidden: false, isTrending: false,
-        boostScore: 100,
-        boostExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        createdAt: serverTimestamp(),
+        likesCount:        0,
+        commentsCount:     0,
+        sharesCount:       0,
+        savesCount:        0,
+        viewsCount:        0,
+        totalWatchSeconds: 0,
+        completionRate:    0,
+        reportCount:       0,
+        isHidden:          false,
+        isTrending:        false,
+        boostScore:        100,
+        boostExpiresAt:    new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        createdAt:         serverTimestamp(),
       });
 
       setStep('done');
@@ -204,6 +292,12 @@ export default function CreateLynkPage() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const phaseLabel = uploadPhase === 'video'
+    ? `Uploading video… ${uploadProgress}%`
+    : uploadPhase === 'thumbnail'
+    ? 'Uploading thumbnail…'
+    : 'Saving…';
+
   return (
     <div className="min-h-screen bg-background text-foreground pb-20">
       <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b border-border px-4 py-3 flex items-center justify-between">
@@ -215,6 +309,7 @@ export default function CreateLynkPage() {
 
       <div className="max-w-lg mx-auto px-4 pt-6 space-y-6">
 
+        {/* ── Step: Pick file ── */}
         {step === 'pick' && (
           <div
             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -244,6 +339,7 @@ export default function CreateLynkPage() {
           </div>
         )}
 
+        {/* ── Step: Details ── */}
         {step === 'details' && (
           <>
             <div className="flex gap-4 items-start">
@@ -328,19 +424,23 @@ export default function CreateLynkPage() {
           </>
         )}
 
+        {/* ── Step: Uploading ── */}
         {step === 'uploading' && (
           <div className="flex flex-col items-center justify-center gap-6 py-20">
             <div className="relative">
-              <ProgressRing progress={uploadProgress} size={80} />
-              <span className="absolute inset-0 flex items-center justify-center text-sm font-semibold">{uploadProgress}%</span>
+              <ProgressRing progress={uploadPhase === 'video' ? uploadProgress : 100} size={80} />
+              <span className="absolute inset-0 flex items-center justify-center text-sm font-semibold">
+                {uploadPhase === 'video' ? `${uploadProgress}%` : '✓'}
+              </span>
             </div>
             <div className="text-center space-y-1">
-              <p className="font-medium">{uploadProgress === 0 ? 'Preparing…' : uploadProgress < 100 ? 'Uploading to YouTube…' : 'Saving…'}</p>
+              <p className="font-medium">{phaseLabel}</p>
               <p className="text-sm text-muted-foreground">Keep this page open.</p>
             </div>
           </div>
         )}
 
+        {/* ── Step: Done ── */}
         {step === 'done' && (
           <div className="flex flex-col items-center justify-center gap-6 py-20 text-center">
             <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center text-4xl">🚀</div>
