@@ -18,7 +18,7 @@ import { BlinkUploadState } from '../types/blink';
 const MAX_IMAGE_MB = 10;
 const MAX_VIDEO_MB = 50;
 
-const CLOUD_NAME    = 'dmwnywqes';
+const CLOUD_NAME = 'dmwnywqes'.trim();
 const UPLOAD_PRESET = 'blinks';
 
 const INITIAL_STATE: BlinkUploadState = {
