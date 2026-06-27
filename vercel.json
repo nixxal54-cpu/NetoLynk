@@ -1,0 +1,16 @@
+{
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.youtube.com https://s.ytimg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src * blob: data:; media-src * blob:; connect-src 'self' https://api.cloudinary.com https://res.cloudinary.com wss://*.firebaseio.com https://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebase.googleapis.com https://fcmregistrations.googleapis.com https://firebasestorage.googleapis.com https://api.tenor.com https://itunes.apple.com https://o*.ingest.sentry.io; frame-src https://www.youtube.com; worker-src 'self' blob:;"
+        }
+      ]
+    }
+  ]
+}
