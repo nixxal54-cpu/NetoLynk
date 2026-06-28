@@ -18,7 +18,7 @@ import { BlinkUploadState } from '../types/blink';
 const MAX_IMAGE_MB = 10;
 const MAX_VIDEO_MB = 50;
 
-const CLOUD_NAME = 'dmwnywqes'.trim();
+const CLOUD_NAME = 'dmwnywqes';
 const UPLOAD_PRESET = 'blinks';
 
 const INITIAL_STATE: BlinkUploadState = {
@@ -102,7 +102,7 @@ export function useBlinkUpload() {
       // /auto/upload requires the preset to have resource_type=auto enabled,
       // which is NOT the default. The typed endpoints always work.
       const resourceType = type === 'video' ? 'video' : 'image';
-      const uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/${resourceType}/upload`;
+      const uploadUrl = 'https://api.cloudinary.com/v1_1/' + CLOUD_NAME + '/' + resourceType + '/upload';
       // Timeout: 30 s images, 120 s videos
       const timeoutMs = type === 'video' ? 120_000 : 30_000;
       const controller = new AbortController();
