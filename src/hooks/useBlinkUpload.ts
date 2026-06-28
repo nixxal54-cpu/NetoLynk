@@ -103,21 +103,12 @@ export function useBlinkUpload() {
       // which is NOT the default. The typed endpoints always work.
       const resourceType = type === 'video' ? 'video' : 'image';
       const uploadUrl = 'https://api.cloudinary.com/v1_1/' + CLOUD_NAME + '/' + resourceType + '/upload';
-      // Timeout: 30 s images, 120 s videos
-      const timeoutMs = type === 'video' ? 120_000 : 30_000;
-      const controller = new AbortController();
-      const timeoutId  = setTimeout(() => controller.abort(), timeoutMs);
 
       let response: Response;
-      try {
-        response = await fetch(uploadUrl, {
-          method: 'POST',
-          body: formData,
-          signal: controller.signal,
-        });
-      } finally {
-        clearTimeout(timeoutId);
-      }
+      response = await fetch(uploadUrl, {
+        method: 'POST',
+        body: formData,
+      });
 
       clearInterval(progressInterval);
       setState(s => ({ ...s, progress: 95 }));
