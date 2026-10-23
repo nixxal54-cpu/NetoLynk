@@ -13,6 +13,8 @@ import { useState, useCallback, useRef } from 'react';
 import { collection, addDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
+import imageCompression from 'browser-image-compression';
+import { uploadToCloudinary } from '../lib/imageUpload';
 import { BlinkUploadState } from '../types/blink';
 
 const MAX_IMAGE_MB = 10;
@@ -93,34 +95,26 @@ export function useBlinkUpload() {
     }, 800);
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('upload_preset', UPLOAD_PRESET);
-      formData.append('folder', 'blinks');
+      // Compress photos first (phone photos are often 5–10 MB) — far more reliable on mobile data
+      let uploadFile: Blob = file;
+      if (type === 'image') {
+        try {
+          uploadFile = await imageCompression(file, { maxSizeMB: 1.5, maxWidthOrHeight: 1920, useWebWorker: true });
+        } catch { uploadFile = file; }
+      }
 
-      // FIX: Use typed endpoint (/image/ or /video/) instead of /auto/
-      // /auto/upload requires the preset to have resource_type=auto enabled,
-      // which is NOT the default. The typed endpoints always work.
-      const resourceType = type === 'video' ? 'video' : 'image';
-      const uploadUrl = 'https://api.cloudinary.com/v1_1/' + CLOUD_NAME + '/' + resourceType + '/upload';
-
-      let response: Response;
-      response = await fetch(uploadUrl, {
-        method: 'POST',
-        body: formData,
+      const result = await uploadToCloudinary(uploadFile, {
+        resourceType: type === 'video' ? 'video' : 'image',
+        folder: 'blinks',
+        name: file.name,
+        onProgress: (pct) => {
+          currentProgress = Math.max(currentProgress, Math.min(Math.round(pct * 0.88), 88));
+        },
       });
+      const mediaUrl = result.url;
 
       clearInterval(progressInterval);
       setState(s => ({ ...s, progress: 95 }));
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        console.error('[Blink] Cloudinary rejected upload:', errorData);
-        throw new Error(errorData?.error?.message || `Cloudinary Error ${response.status}`);
-      }
-
-      const data     = await response.json();
-      const mediaUrl = data.secure_url as string;
 
       const now       = new Date();
       const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
