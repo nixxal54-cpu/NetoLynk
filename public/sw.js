@@ -1,29 +1,41 @@
-const CACHE_NAME = 'netolynk-v1';
-const urlsToCache = [
-  '/',
-  '/index.html',
-];
+// NetoLynk service worker
+// v2: network-first for pages so a new deploy never serves a stale index.html
+// (the old cache-first version caused a blank screen after redeploys).
+const CACHE_NAME = 'netolynk-v2';
 
-self.addEventListener('install', (event) => {
+self.addEventListener('install', () => {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(urlsToCache))
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
 });
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
 
-  // ✅ Only cache GET requests to same origin — skip everything else
-  // POST/PUT/DELETE and cross-origin requests (like Cloudinary, Firebase)
-  // must go directly to the network without SW interference
-  if (
-    request.method !== 'GET' ||
-    !request.url.startsWith(self.location.origin)
-  ) {
-    return; // Let browser handle it natively — no event.respondWith()
+  // Only handle same-origin GET requests
+  if (request.method !== 'GET' || !request.url.startsWith(self.location.origin)) {
+    return;
   }
 
-  event.respondWith(
-    caches.match(request).then((response) => response || fetch(request))
-  );
+  // Page navigations: always try the network first, fall back to cache offline
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then((res) => {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then((c) => c.put('/index.html', copy));
+          return res;
+        })
+        .catch(() => caches.match('/index.html'))
+    );
+    return;
+  }
+
+  // Everything else: straight to the network
 });
