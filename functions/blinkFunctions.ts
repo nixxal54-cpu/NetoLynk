@@ -10,7 +10,6 @@ import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 
 const db = admin.firestore();
-const storage = admin.storage();
 
 // ── 1. Scheduled cleanup: runs every hour ─────────────────────────────────────
 export const cleanExpiredBlinks = functions.scheduler
@@ -30,21 +29,6 @@ export const cleanExpiredBlinks = functions.scheduler
 
     for (const doc of expired.docs) {
       const data = doc.data();
-
-      // Delete media from Storage
-      try {
-        const url: string = data.mediaUrl;
-        if (url) {
-          // Extract storage path from download URL
-          const match = url.match(/\/o\/(.+?)\?/);
-          if (match) {
-            const path = decodeURIComponent(match[1]);
-            await storage.bucket().file(path).delete();
-          }
-        }
-      } catch (e) {
-        // Media may already be gone — continue
-      }
 
       // Delete sub-collections
       const [reactions, replies] = await Promise.all([
