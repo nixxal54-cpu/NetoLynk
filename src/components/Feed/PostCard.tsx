@@ -523,6 +523,7 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
     setIsLiked(!wasLiked);
     setLocalLikesCount(prev => Math.max(0, wasLiked ? prev - 1 : prev + 1));
     setCache(likeKey, !wasLiked);
+    if (post.id.startsWith('demo_')) return; // demo posts are client-only — no DB write
     setIsLiking(true);
 
     if (syncLock.current) clearTimeout(syncLock.current);
@@ -552,6 +553,7 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
 
     const wasSaved = isSaved;
     setIsSaved(!wasSaved);
+    if (post.id.startsWith('demo_')) { toast.success(wasSaved ? 'Removed from bookmarks' : 'Saved to bookmarks'); return; }
     setIsSaving(true);
 
     try {
@@ -589,7 +591,7 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
   }, []);
 
   const navigateToPost = () => {
-    if (!isDeleting) navigate(`/post/${post.id}`);
+    if (!isDeleting && !post.id.startsWith('demo_')) navigate(`/post/${post.id}`);
   };
 
   const renderFormattedText = (text: string) => {
@@ -648,7 +650,7 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
             alt={post.username}
             loading="lazy"
             onError={() => setAvatarFailed(true)}
-            onClick={(e) => { e.stopPropagation(); navigate(`/profile/${post.username}`); }}
+            onClick={(e) => { e.stopPropagation(); if (!post.id.startsWith('demo_')) navigate(`/profile/${post.username}`); }}
           />
         </div>
 
@@ -657,7 +659,7 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 flex-wrap min-w-0">
               <span 
-                onClick={(e) => { e.stopPropagation(); navigate(`/profile/${post.username}`); }}
+                onClick={(e) => { e.stopPropagation(); if (!post.id.startsWith('demo_')) navigate(`/profile/${post.username}`); }}
                 className="font-bold hover:underline truncate"
               >
                 {post.username}
@@ -782,7 +784,7 @@ export const PostCard: React.FC<PostCardProps> = memo(({ post }) => {
               <span className="text-xs font-medium tabular-nums min-w-[2ch]">{localLikesCount > 0 ? localLikesCount : ''}</span>
             </button>
 
-            <button onClick={(e) => { e.stopPropagation(); navigate(`/post/${post.id}?focus=comment`); }} aria-label="Comment on post"
+            <button onClick={(e) => { e.stopPropagation(); if (!post.id.startsWith('demo_')) navigate(`/post/${post.id}?focus=comment`); }} aria-label="Comment on post"
               className="group flex items-center gap-1 hover:text-blue-500 transition-colors">
               <div className="p-2 group-hover:bg-blue-500/10 rounded-full transition-colors">
                 <MessageCircle className="w-5 h-5 transition-transform duration-150 group-active:scale-95" />
