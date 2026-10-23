@@ -1,9 +1,9 @@
 import React, { useState, useRef } from 'react';
 import { X, Camera, Loader2 } from 'lucide-react';
 import { doc, updateDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { uploadImage } from '../../lib/imageUpload';
 import { updateProfile } from 'firebase/auth';
-import { db, storage, auth } from '../../lib/firebase';
+import { db, auth } from '../../lib/firebase';
 import { User } from '../../types';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
@@ -46,18 +46,14 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ user, isOpen
       let finalProfileImage = user.profileImage || '';
       let finalCoverImage = user.coverImage || '';
 
-      // Upload profile image to Firebase Storage
+      // Upload profile image
       if (profileFile) {
-        const storageRef = ref(storage, `profileImages/${user.uid}`);
-        await uploadBytes(storageRef, profileFile);
-        finalProfileImage = await getDownloadURL(storageRef);
+        finalProfileImage = await uploadImage(profileFile, 'profileImages');
       }
 
-      // Upload cover image to Firebase Storage
+      // Upload cover image
       if (coverFile) {
-        const storageRef = ref(storage, `coverImages/${user.uid}`);
-        await uploadBytes(storageRef, coverFile);
-        finalCoverImage = await getDownloadURL(storageRef);
+        finalCoverImage = await uploadImage(coverFile, 'coverImages');
       }
 
       // Update Firestore user document
