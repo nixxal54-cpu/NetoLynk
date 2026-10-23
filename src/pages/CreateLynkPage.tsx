@@ -3,6 +3,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
+import { uploadToCloudinary } from '../lib/imageUpload';
 import { LynkCategory } from '../types/lynk';
 
 type Visibility = 'public' | 'unlisted';
@@ -64,103 +65,31 @@ function extractHashtags(text: string): string[] {
   return [...text.matchAll(/#(\w+)/g)].map(m => m[1].toLowerCase());
 }
 
-/**
- * Upload a video file to Cloudinary using an unsigned upload preset.
- * Returns the secure_url and public_id from Cloudinary.
- *
- * We use the same cloud name + preset that Blinks already uses
- * (VITE_CLOUDINARY_CLOUD_NAME / VITE_CLOUDINARY_UPLOAD_PRESET).
- * If you want a separate preset for Lynks you can add
- * VITE_CLOUDINARY_LYNKS_UPLOAD_PRESET to .env.local.
- */
-async function uploadToCloudinary(
+/** Upload the video (with retries + progress) via the shared helper. */
+async function uploadVideoToCloudinary(
   file: File,
   onProgress: (pct: number) => void
 ): Promise<{ videoUrl: string; publicId: string }> {
-  const cloudName   = (import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string) || 'dmwnywqes';
-  // Use a dedicated lynks preset if set, otherwise fall back to the blinks one.
-  const uploadPreset =
-    (import.meta.env.VITE_CLOUDINARY_LYNKS_UPLOAD_PRESET as string) ||
-    (import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string) ||
-    'blinks';
-
-  if (!cloudName || !uploadPreset) {
-    throw new Error('Cloudinary env vars not set. Check VITE_CLOUDINARY_CLOUD_NAME and VITE_CLOUDINARY_UPLOAD_PRESET in .env.local');
-  }
-
-  const url = `https://api.cloudinary.com/v1_1/${cloudName}/video/upload`;
-  const fd  = new FormData();
-  fd.append('file',         file);
-  fd.append('upload_preset', uploadPreset);
-  fd.append('folder',       'lynks');   // keeps things organised in your dashboard
-
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', url);
-
-    xhr.upload.onprogress = (evt) => {
-      if (evt.lengthComputable) onProgress(Math.round((evt.loaded / evt.total) * 100));
-    };
-
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        try {
-          const data = JSON.parse(xhr.responseText);
-          resolve({ videoUrl: data.secure_url as string, publicId: data.public_id as string });
-        } catch {
-          reject(new Error('Invalid response from Cloudinary'));
-        }
-      } else {
-        try {
-          const data = JSON.parse(xhr.responseText);
-          reject(new Error(data.error?.message || `Cloudinary upload failed (${xhr.status})`));
-        } catch {
-          reject(new Error(`Cloudinary upload failed (${xhr.status})`));
-        }
-      }
-    };
-
-    xhr.onerror = () => reject(new Error('Network error during upload'));
-    xhr.send(fd);
+  const r = await uploadToCloudinary(file, {
+    resourceType: 'video',
+    folder: 'lynks',
+    onProgress,
+    preset: (import.meta.env.VITE_CLOUDINARY_LYNKS_UPLOAD_PRESET as string) || undefined,
   });
+  return { videoUrl: r.url, publicId: r.publicId };
 }
 
-/**
- * Convert the canvas-generated data-URL thumbnail to a Blob and upload it
- * to Cloudinary as an image so we have a persistent hosted URL.
- */
-async function uploadThumbnailToCloudinary(
-  dataUrl: string,
-  publicIdBase: string
-): Promise<string> {
-  const cloudName    = (import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string) || 'dmwnywqes';
-  const uploadPreset =
-    (import.meta.env.VITE_CLOUDINARY_LYNKS_UPLOAD_PRESET as string) ||
-    (import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string) ||
-    'blinks';
-
-  // Convert data URL → Blob
-  const res  = await fetch(dataUrl);
-  const blob = await res.blob();
-
-  const fd = new FormData();
-  fd.append('file',          blob, `${publicIdBase}_thumb.jpg`);
-  fd.append('upload_preset', uploadPreset);
-  fd.append('folder',        'lynks/thumbnails');
-  fd.append('public_id',     `${publicIdBase}_thumb`);
-
-  const response = await fetch(
-    `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
-    { method: 'POST', body: fd }
-  );
-
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error((err as any)?.error?.message || 'Thumbnail upload failed');
-  }
-
-  const data = await response.json();
-  return data.secure_url as string;
+/** Upload the canvas-generated thumbnail (data URL) as an image. */
+async function uploadThumbnailToCloudinary(dataUrl: string, publicIdBase: string): Promise<string> {
+  const blob = await (await fetch(dataUrl)).blob();
+  const r = await uploadToCloudinary(blob, {
+    resourceType: 'image',
+    folder: 'lynks/thumbnails',
+    name: `${publicIdBase}_thumb.jpg`,
+    publicId: `${publicIdBase}_thumb`,
+    preset: (import.meta.env.VITE_CLOUDINARY_LYNKS_UPLOAD_PRESET as string) || undefined,
+  });
+  return r.url;
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -235,7 +164,7 @@ export default function CreateLynkPage() {
 
     try {
       // 1. Upload video to Cloudinary
-      const { videoUrl, publicId } = await uploadToCloudinary(file, (pct) => {
+      const { videoUrl, publicId } = await uploadVideoToCloudinary(file, (pct) => {
         setUploadProgress(pct);
       });
 
