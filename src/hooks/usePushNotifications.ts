@@ -28,7 +28,7 @@ export const usePushNotifications = () => {
         if (permission === 'granted') {
           const token = await getToken(messaging, {
             vapidKey:
-              'BCdHAuduL_vuZ_rqN-KDXYGz8BS9KZpUmz3R2pwOBagXvTxudYYi-A0iBneAhQpw9f2gdz4LLxh26zbO8SmJWgw',
+              'BGsTxbTJA8B8Y6hGUjlpdWhuU_3b0RVUDR2TEgV2PCbrI1-2gMOoY1TGLGHJhA-0PoGlxwtRxaaCipL9aVdtqAE',
           });
 
           if (token && auth.currentUser) {
