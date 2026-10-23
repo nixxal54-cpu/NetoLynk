@@ -3,9 +3,9 @@ import imageCompression from 'browser-image-compression';
 import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { db, storage } from '../lib/firebase';
+import { db } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { uploadImage } from '../lib/imageUpload';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { MentionTextarea } from '../components/UI/MentionTextarea';
@@ -134,9 +134,7 @@ export const CreatePostPage: React.FC = () => {
         const mediaUrls: string[] = await Promise.all(
           selectedFiles.map(async (file) => {
             const compressed = await imageCompression(file, { maxSizeMB: 1, maxWidthOrHeight: 1920, useWebWorker: true });
-            const storageRef = ref(storage, `posts/${user.uid}/${Date.now()}_${file.name}`);
-            await uploadBytes(storageRef, compressed);
-            return getDownloadURL(storageRef);
+            return uploadImage(compressed, 'posts');
           })
         );
         postData = { ...base, type: mediaUrls.length > 0 ? 'image' : 'text', text: text.trim(), mediaUrls };
