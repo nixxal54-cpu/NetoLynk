@@ -1,9 +1,9 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { doc, setDoc, serverTimestamp, collection, query, where, getDocs, limit } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { uploadImage } from '../../lib/imageUpload';
 import imageCompression from 'browser-image-compression';
-import { auth, db, storage } from '../../lib/firebase';
+import { auth, db } from '../../lib/firebase';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAccountSwitcher } from '../../context/AccountSwitcherContext';
@@ -127,9 +127,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onBack }) => {
           maxWidthOrHeight: 512,
           useWebWorker: true,
         });
-        const storageRef = ref(storage, `users/${user.uid}/profile`);
-        await uploadBytes(storageRef, compressed);
-        profileImageUrl = await getDownloadURL(storageRef);
+        profileImageUrl = await uploadImage(compressed, 'users');
       }
 
       // 3. Update Firebase Auth profile
