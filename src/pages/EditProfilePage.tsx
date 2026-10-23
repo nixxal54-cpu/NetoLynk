@@ -2,9 +2,9 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { db, storage } from '../lib/firebase';
+import { db } from '../lib/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { uploadImage } from '../lib/imageUpload';
 import { toast } from 'sonner';
 import { motion } from 'motion/react';
 import { ChevronLeft, Camera, Loader2 } from 'lucide-react';
@@ -46,12 +46,7 @@ export const EditProfilePage: React.FC = () => {
     
     setUploading(true);
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${user.uid}_${type}_${Date.now()}.${fileExt}`;
-      const storageRef = ref(storage, `users/${user.uid}/${fileName}`);
-      
-      await uploadBytes(storageRef, file);
-      const downloadURL = await getDownloadURL(storageRef);
+      const downloadURL = await uploadImage(file, 'users');
       
       setImage(downloadURL);
       toast.success(`${type === 'profile' ? 'Profile' : 'Cover'} image uploaded!`);
