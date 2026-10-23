@@ -77,11 +77,12 @@ async function uploadToCloudinary(
   file: File,
   onProgress: (pct: number) => void
 ): Promise<{ videoUrl: string; publicId: string }> {
-  const cloudName   = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string;
+  const cloudName   = (import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string) || 'dmwnywqes';
   // Use a dedicated lynks preset if set, otherwise fall back to the blinks one.
   const uploadPreset =
     (import.meta.env.VITE_CLOUDINARY_LYNKS_UPLOAD_PRESET as string) ||
-    (import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string);
+    (import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string) ||
+    'blinks';
 
   if (!cloudName || !uploadPreset) {
     throw new Error('Cloudinary env vars not set. Check VITE_CLOUDINARY_CLOUD_NAME and VITE_CLOUDINARY_UPLOAD_PRESET in .env.local');
@@ -132,10 +133,11 @@ async function uploadThumbnailToCloudinary(
   dataUrl: string,
   publicIdBase: string
 ): Promise<string> {
-  const cloudName    = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string;
+  const cloudName    = (import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string) || 'dmwnywqes';
   const uploadPreset =
     (import.meta.env.VITE_CLOUDINARY_LYNKS_UPLOAD_PRESET as string) ||
-    (import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string);
+    (import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string) ||
+    'blinks';
 
   // Convert data URL → Blob
   const res  = await fetch(dataUrl);
