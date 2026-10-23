@@ -8,6 +8,7 @@ import { Loader2, Sparkles, Flame } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useInfiniteFeed } from '../hooks/useInfiniteScroll';
+import { getDemoPosts } from '../lib/demoFeed';
 import { useAuth } from '../context/AuthContext';
 import { BlinkBar } from '../components/Blinks/BlinkBar';
 import { BlinkViewer } from '../components/Blinks/BlinkViewer';
@@ -67,12 +68,18 @@ export const Home: React.FC = () => {
     return () => observer.disconnect();
   }, [hasMore, loadingMore, fetchMore]);
 
+  // Demo posts keep the feed lively; real posts always come first in 'following'
+  const allPosts = useMemo(() => {
+    const real = posts.filter(p => !p.id.startsWith('demo_'));
+    return [...real, ...getDemoPosts()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [posts]);
+
   const displayedPosts = useMemo(() => {
-    if (activeFeed === 'vibes') return posts.filter(p => p.mood);
+    if (activeFeed === 'vibes') return allPosts.filter(p => p.mood);
     if (activeFeed === 'following') return posts.filter(p => user?.following?.includes(p.userId));
-    if (activeFeed === 'for-you') return [...posts].sort((a, b) => calculatePostScore(b) - calculatePostScore(a));
-    return posts;
-  }, [posts, activeFeed, user?.following]);
+    if (activeFeed === 'for-you') return [...allPosts].sort((a, b) => calculatePostScore(b) - calculatePostScore(a));
+    return allPosts;
+  }, [allPosts, posts, activeFeed, user?.following]);
 
   const vibeRooms = ['Hyped', 'Peaceful', 'Frustrated', 'Dead inside'];
 
