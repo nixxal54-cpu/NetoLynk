@@ -2,7 +2,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { AnimatePresence } from 'motion/react';
 import imageCompression from 'browser-image-compression';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { uploadImage } from '../lib/imageUpload';
 import { httpsCallable } from 'firebase/functions';
 import { NetoAIChat } from '../components/AI/NetoAIChat';
 import { useAuth } from '../context/AuthContext';
@@ -24,7 +24,7 @@ import {
   onSnapshot,
   limit,
 } from 'firebase/firestore';
-import { db, storage, functions } from '../lib/firebase';
+import { db, functions } from '../lib/firebase';
 import {
   Send,
   Image as ImageIcon,
@@ -671,9 +671,7 @@ export const Messages: React.FC = () => {
         maxWidthOrHeight: 1280,
         useWebWorker: true,
       });
-      const storageRef = ref(storage, `chats/${selectedChat.id}/${Date.now()}_${file.name}`);
-      await uploadBytes(storageRef, compressed);
-      const url = await getDownloadURL(storageRef);
+      const url = await uploadImage(compressed, 'chats');
       await sendMessage('', url);
     } catch {
       toast.error('Failed to upload image');
